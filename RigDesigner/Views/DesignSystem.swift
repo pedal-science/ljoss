@@ -25,16 +25,18 @@ enum Metrics {
     static let minTouchTarget: CGFloat = 48
 
     static let nodeCorner: CGFloat = 18
-    static let laneInset: CGFloat = 12
 
     /// Distance from a canvas edge that starts auto-scrolling during a drag.
     static let autoScrollZone: CGFloat = 78
     /// Peak auto-scroll speed, points per second.
     static let autoScrollMaxSpeed: CGFloat = 900
 
-    /// How far a finger must travel after the lift before a drag is real.
-    static let dragActivationSlop: CGFloat = 2
-    /// Long-press duration that lifts a node out of the scrolling chain.
+    /// How far a pointer must travel before a drag starts on macOS, where a
+    /// drag is distinguished by movement rather than by a hold. Below this a
+    /// press stays a click, so tap-to-select still works.
+    static let pointerDragThreshold: CGFloat = 8
+    /// Long-press duration that lifts a node out of the scrolling chain on iOS,
+    /// where a finger pan is also how you scroll.
     static let liftDuration: Double = 0.18
 
     static let trayHeightCompact: CGFloat = 216

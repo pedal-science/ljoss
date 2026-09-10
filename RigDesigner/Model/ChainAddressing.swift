@@ -46,6 +46,18 @@ struct InsertionSlot: Codable, Hashable, Sendable {
     var index: Int
 }
 
+/// Addresses a gap in terms of what is currently *on screen*.
+///
+/// During a drag the element being moved is not rendered, so rendered indices
+/// and model indices diverge in its container. Tracking the drop target in
+/// rendered terms means the gap is drawn exactly where the eye expects; the
+/// conversion to an `InsertionSlot` happens once, at drop, in
+/// `Rig.modelSlot(for:hiding:)`.
+struct RenderSlot: Hashable, Sendable {
+    var container: ContainerPath
+    var renderedIndex: Int
+}
+
 // MARK: - Tree access
 
 extension Rig {

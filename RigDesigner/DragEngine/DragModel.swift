@@ -13,17 +13,6 @@ enum DragPayload: Equatable {
     }
 }
 
-/// An insertion point expressed in terms of what is currently *on screen*.
-///
-/// During a drag the element being moved is not rendered, so rendered indices
-/// and model indices diverge. Tracking the target in rendered terms means the
-/// gap is drawn exactly where the eye expects; the conversion to a model slot
-/// happens once, at drop.
-struct RenderSlot: Hashable {
-    var container: ContainerPath
-    var renderedIndex: Int
-}
-
 /// Where a drop would land, or that it would delete.
 enum DropTarget: Equatable {
     case slot(RenderSlot)

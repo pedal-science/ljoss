@@ -34,10 +34,11 @@ struct DragSurfaceGesture: ViewModifier {
     #if os(macOS)
     /// On macOS a drag is distinguished by *movement*, not by a hold. Scrolling
     /// is a trackpad/wheel gesture here, so click-drag competes with nothing,
-    /// and requiring a hold before a mouse drag would feel broken. A click that
-    /// never travels 8pt stays a click, so tap-to-select still works.
+    /// and requiring a hold before a mouse drag would feel broken. A click that never
+    /// travels `Metrics.pointerDragThreshold` stays a click, so tap-to-select
+    /// still works.
     private var gesture: some Gesture {
-        DragGesture(minimumDistance: 8, coordinateSpace: .global)
+        DragGesture(minimumDistance: Metrics.pointerDragThreshold, coordinateSpace: .global)
             .onChanged { value in
                 if isLifted {
                     editor.updateDrag(pointerGlobal: value.location)
