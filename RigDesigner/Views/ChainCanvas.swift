@@ -8,23 +8,11 @@ private struct ContainerSnapshot: Equatable {
     var ids: [UUID]
 }
 
-private struct ScrollSnapshot: Equatable {
-    var offsetX: CGFloat
-    var maxX: CGFloat
-}
-
-/// Live scroll state, kept off SwiftUI state so auto-scroll ticks are free.
-@MainActor
-private final class ScrollBox {
-    var offsetX: CGFloat = 0
-    var maxX: CGFloat = 0
-    var isAutoScrolling = false
-}
-
 // MARK: - A series of elements
 
-/// Renders one container: a horizontal run of elements with a drop gap in every
-/// space between them.
+/// Renders one lane of a parallel section: a horizontal run of elements with a
+/// drop gap in every space between them. Lanes never wrap; a chain's top level
+/// is `ChainFlowView`.
 struct ElementSequenceView: View {
     let container: ContainerPath
     let elements: [ChainElement]
@@ -56,15 +44,7 @@ struct ElementSequenceView: View {
         // An empty lane still needs a body to drop into.
         .frame(minWidth: items.isEmpty ? Metrics.nodeWidth : 0, minHeight: Metrics.nodeHeight)
         .background {
-            if items.isEmpty {
-                RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous)
-                    .strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
-                    .overlay {
-                        Text("Dry")
-                            .font(.system(size: 12, weight: .medium))
-                            .foregroundStyle(.tertiary)
-                    }
-            }
+            if items.isEmpty { DryOutline() }
         }
         .onGeometryChange(for: ContainerSnapshot.self) { proxy in
             ContainerSnapshot(rect: proxy.frame(in: .global), ids: ids)
@@ -79,6 +59,89 @@ struct ElementSequenceView: View {
         // A container that goes away — a split pruned, a rig switched — must not
         // leave its rect behind, or a stale lane can win a later hit test and
         // silently swallow drops.
+        .onDisappear { editor.registry.removeContainer(container) }
+    }
+}
+
+// MARK: - A chain's top level
+
+/// A chain's top level — Input, its elements, Output — on one line, or wrapped
+/// onto several rows to fit a width.
+///
+/// Every element is one flow item carrying its own leading wire, preceded by its
+/// drop gap as a separate item. Keeping the gap separate is what lets it open at
+/// the end of a row when there is room, and wrap to the start of the next row —
+/// right before the tile it will precede — when there is not.
+struct ChainFlowView: View {
+    let chain: SignalChain
+    /// The width to wrap at, or nil for one line.
+    let wrapWidth: CGFloat?
+
+    @Environment(RigEditor.self) private var editor
+
+    private var container: ContainerPath { .top(chain.id) }
+
+    private func isTarget(_ index: Int) -> Bool {
+        editor.drag.target == .slot(RenderSlot(container: container, renderedIndex: index))
+    }
+
+    var body: some View {
+        let hidden = editor.drag.hiddenElementID
+        let items = chain.elements.filter { $0.id != hidden }
+        let ids = items.map(\.id)
+        let gapWidth = editor.drag.ghostSize.width
+        // Enough wire for the most rows the chain could need: every tile on a
+        // row of its own, plus one open gap. Unused pieces sit at zero size.
+        let wirePieces = (items.count + 2) * FlowArrangement.WirePiece.allCases.count
+
+        ChainFlowLayout(wrapWidth: wrapWidth) {
+            EndpointTile(kind: .input, source: chain.source,
+                         isSelected: editor.selection == .input(chain.id))
+                .onTapGesture { editor.selection = .input(chain.id) }
+                .reportGlobalFrame { editor.registry.setEndpoint(.leading, rect: $0, for: container) }
+
+            ForEach(Array(items.enumerated()), id: \.element.id) { index, element in
+                DropGap(isOpen: isTarget(index), width: gapWidth)
+                HStack(spacing: 0) {
+                    Connector()
+                    ElementView(element: element, container: container, depth: 0)
+                }
+            }
+
+            if items.isEmpty {
+                HStack(spacing: 0) {
+                    Connector()
+                    DropGap(isOpen: isTarget(0), width: gapWidth)
+                        .frame(minWidth: Metrics.nodeWidth, minHeight: Metrics.nodeHeight)
+                        .background { DryOutline() }
+                }
+            } else {
+                DropGap(isOpen: isTarget(items.count), width: gapWidth)
+            }
+
+            HStack(spacing: 0) {
+                Connector()
+                EndpointTile(kind: .output, source: chain.source,
+                             isSelected: editor.selection == .output(chain.id))
+                    .onTapGesture { editor.selection = .output(chain.id) }
+                    .reportGlobalFrame { editor.registry.setEndpoint(.trailing, rect: $0, for: container) }
+            }
+
+            ForEach(0..<wirePieces, id: \.self) { n in
+                Rectangle()
+                    .fill(.tertiary)
+                    .layoutValue(key: FlowRoleKey.self, value: .wire(
+                        lineBreak: n / FlowArrangement.WirePiece.allCases.count,
+                        piece: FlowArrangement.WirePiece(rawValue: n % FlowArrangement.WirePiece.allCases.count)!
+                    ))
+                    .allowsHitTesting(false)
+            }
+        }
+        .onGeometryChange(for: ContainerSnapshot.self) { proxy in
+            ContainerSnapshot(rect: proxy.frame(in: .global), ids: ids)
+        } action: { snapshot in
+            editor.registry.setContainer(container, rect: snapshot.rect, depth: 0, renderedIDs: snapshot.ids)
+        }
         .onDisappear { editor.registry.removeContainer(container) }
     }
 }
@@ -217,61 +280,44 @@ struct SplitBracket: View {
 
 struct ChainRowView: View {
     let chain: SignalChain
+    /// Wrap the chain onto more rows to fit the width, rather than scrolling
+    /// sideways to reach the end of it.
+    let wraps: Bool
 
     @Environment(RigEditor.self) private var editor
-    @State private var scrollPosition = ScrollPosition(idType: Never.self)
-    @State private var scrollBox = ScrollBox()
+    @State private var viewportWidth: CGFloat = 0
+
+    /// The width rows break at, or nil for one line. Also nil until the row has
+    /// been measured once, so the first pass lays out a line, not a column.
+    private var wrapWidth: CGFloat? {
+        guard wraps, viewportWidth > 0 else { return nil }
+        return viewportWidth - 2 * Metrics.canvasPadding
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             header
 
+            // Still a scroll view when wrapping: a split section wider than the
+            // screen cannot wrap internally, so it overflows its row and the row
+            // scrolls, rather than being clipped.
             ScrollView(.horizontal) {
-                HStack(spacing: 0) {
-                    EndpointTile(kind: .input, source: chain.source,
-                                 isSelected: editor.selection == .input(chain.id))
-                        .onTapGesture { editor.selection = .input(chain.id) }
-                    Connector()
-
-                    ElementSequenceView(
-                        container: .top(chain.id),
-                        elements: chain.elements,
-                        depth: 0
-                    )
-
-                    Connector()
-                    EndpointTile(kind: .output, source: chain.source,
-                                 isSelected: editor.selection == .output(chain.id))
-                        .onTapGesture { editor.selection = .output(chain.id) }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .dragSurface(.canvas)
+                ChainFlowView(chain: chain, wrapWidth: wrapWidth)
+                    .animation(Anim.reflow, value: wraps)
+                    .padding(.horizontal, Metrics.canvasPadding)
+                    .padding(.vertical, 12)
+                    .dragSurface(.canvas)
             }
             // While a node is lifted the scroll view must not compete for the
             // gesture; auto-scroll takes over programmatically instead.
             .scrollDisabled(editor.drag.isActive)
-            .scrollPosition($scrollPosition)
             .scrollIndicators(.hidden)
-            .onScrollGeometryChange(for: ScrollSnapshot.self) { geo in
-                ScrollSnapshot(
-                    offsetX: geo.contentOffset.x,
-                    maxX: max(0, geo.contentSize.width - geo.containerSize.width)
-                )
-            } action: { _, new in
-                scrollBox.maxX = new.maxX
-                // Accept the echo only when the user is driving. During
-                // auto-scroll the reported offset lags our own writes by a
-                // frame, and feeding it back makes the canvas judder.
-                if !scrollBox.isAutoScrolling { scrollBox.offsetX = new.offsetX }
-            }
+            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .dragAutoScroll(.horizontal)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
             .background {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(.quinary.opacity(0.5))
-            }
-            .reportGlobalFrame { editor.registry.setChainViewport(chain.id, rect: $0) }
-            .task(id: editor.drag.isActive) {
-                await runAutoScroll()
             }
         }
     }
@@ -288,85 +334,5 @@ struct ChainRowView: View {
             Spacer()
         }
         .padding(.horizontal, 18)
-    }
-
-    // MARK: - Auto-scroll
-
-    /// Slide the canvas when the pointer rests near an edge during a drag.
-    ///
-    /// There is no scroll-by-offset API, and `ScrollPosition.x` is not a live
-    /// readout of where the user scrolled to, so this keeps its own accumulator
-    /// seeded from `onScrollGeometryChange` and writes absolute positions.
-    private func runAutoScroll() async {
-        guard editor.drag.isActive else {
-            scrollBox.isAutoScrolling = false
-            return
-        }
-        let frameInterval = Duration.milliseconds(16)
-        let dt = 1.0 / 60.0
-
-        while !Task.isCancelled && editor.drag.isActive {
-            try? await Task.sleep(for: frameInterval)
-            guard !Task.isCancelled else { break }
-
-            guard let viewport = editor.registry.chainViewports[chain.id] else { continue }
-            let point = editor.drag.pointerGlobal
-
-            // Only the chain the pointer is actually over should scroll.
-            let verticalSlack: CGFloat = 40
-            guard point.y >= viewport.minY - verticalSlack,
-                  point.y <= viewport.maxY + verticalSlack else {
-                scrollBox.isAutoScrolling = false
-                continue
-            }
-
-            let velocity = autoScrollVelocity(point: point, viewport: viewport)
-            guard velocity != 0 else {
-                scrollBox.isAutoScrolling = false
-                continue
-            }
-
-            let proposed = (scrollBox.offsetX + velocity * dt).clamped(to: 0...max(0, scrollBox.maxX))
-            guard abs(proposed - scrollBox.offsetX) > 0.01 else {
-                scrollBox.isAutoScrolling = false
-                continue
-            }
-
-            scrollBox.isAutoScrolling = true
-            scrollBox.offsetX = proposed
-            scrollPosition.scrollTo(point: CGPoint(x: proposed, y: 0))
-
-            // The finger is stationary while the content slides, so the gesture
-            // has stopped firing. Without this the gap would stay pinned to the
-            // slot the pointer was over when it stopped moving.
-            editor.recomputeTarget()
-        }
-        scrollBox.isAutoScrolling = false
-    }
-
-    private func autoScrollVelocity(point: CGPoint, viewport: CGRect) -> CGFloat {
-        let zone = Metrics.autoScrollZone
-        let leftDepth = zone - (point.x - viewport.minX)
-        let rightDepth = zone - (viewport.maxX - point.x)
-
-        if leftDepth > 0 {
-            return -Metrics.autoScrollMaxSpeed * ramp(leftDepth / zone)
-        }
-        if rightDepth > 0 {
-            return Metrics.autoScrollMaxSpeed * ramp(rightDepth / zone)
-        }
-        return 0
-    }
-
-    /// Ease in so the edge of the zone nudges gently and the very edge races.
-    private func ramp(_ t: CGFloat) -> CGFloat {
-        let c = t.clamped(to: 0...1)
-        return c * c
-    }
-}
-
-extension Comparable {
-    func clamped(to range: ClosedRange<Self>) -> Self {
-        min(max(self, range.lowerBound), range.upperBound)
     }
 }

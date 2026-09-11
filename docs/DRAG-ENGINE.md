@@ -101,7 +101,7 @@ it is easy to ship an actual data race here.
 | --- | --- |
 | `elements` | every block and parallel section, by id |
 | `containers` | every element list — a chain's top level, and each lane — with its depth and the ids currently rendered in it |
-| `chainViewports` | each chain's scroll viewport, for auto-scroll edge zones |
+| `endpoints` | each chain's Input and Output tiles, which mark its ends for the insertion index |
 | `paletteItems` | palette tiles, by component id |
 | `trashRect` | the remove target, non-empty only while an existing node is in flight |
 
@@ -116,9 +116,22 @@ whole section.
 **Where it would land** (`dropTarget(at:)`) is the **deepest** container
 containing the point, so a lane beats the chain top level it sits inside. If no
 container contains the point, the nearest within one node-height wins, so a
-slightly-off drop still does the obvious thing. Within the chosen container the
-insertion index comes from comparing the pointer against each rendered
-element's horizontal midpoint.
+slightly-off drop still does the obvious thing.
+
+Within the chosen container the insertion index takes two steps, because a
+wrapped chain spans several rows. First the **row**: tiles are grouped into rows
+by vertical overlap, and the gutter between two rows splits at its midpoint.
+Then the first tile on that row whose horizontal **midpoint** is right of the
+pointer. On one line the first step does nothing and this is the plain
+midpoint rule. The logic is in `FlowHitTest` (no SwiftUI) and asserted in
+`Tests/FlowTests.swift`. Two details:
+
+- **Input and Output take part as end markers.** Without Output, a pointer over
+  an Output that has wrapped onto a row of its own would be compared against the
+  blocks of the row above and land in the middle of the chain.
+- **Rows are told apart by height, never by "x went back to the left".** An open
+  gap at the start of a row pushes that row's first tile right of the tile above
+  it, and an x-based rule then merges the two rows.
 
 Containers and elements **unregister on disappear**. A pruned split that left
 its rect behind would win a later hit test and silently swallow drops.
@@ -153,16 +166,19 @@ Every row above is asserted in `Tests/`, for a leading element and a middle one.
 
 ## Auto-scroll
 
-While the pointer rests near the leading or trailing edge of a chain, the canvas
-scrolls itself, ramped quadratically so the edge of the zone nudges and the very
-edge races.
+While the pointer rests near an edge, the content scrolls itself, ramped
+quadratically so the edge of the zone nudges and the very edge races.
+`DragAutoScroll` does this for each chain row (horizontally, for a chain on one
+line) and for the canvas (vertically, because wrapped chains can outgrow the
+screen).
 
-Two non-obvious constraints:
+Constraints that are easy to get wrong:
 
 **There is no scroll-by-offset API, and `ScrollPosition.x` is not a live
 readout** — it returns a value only when the position was last set by point. So
-the row keeps its own offset accumulator, seeded from
-`onScrollGeometryChange`, and writes absolute positions via `scrollTo(point:)`.
+each scroller keeps its own offset accumulator, seeded from
+`onScrollGeometryChange`, and writes absolute positions via `scrollTo(x:)` or
+`scrollTo(y:)`.
 The echo from that callback is accepted only while the user is driving; during
 auto-scroll it lags our own writes by a frame, and feeding it back makes the
 canvas judder.
@@ -172,16 +188,66 @@ edge zone, so the gesture has stopped firing while the content slides
 underneath. Without `editor.recomputeTarget()` on each tick, the gap stays
 pinned to whichever slot the pointer was over when it stopped moving.
 
+**A drag has to arrive before it can scroll.** A drag that begins inside a
+scroll view may scroll it straight away. One that arrives from elsewhere — a
+palette tile carried up into the canvas — must reach the interior first, or
+merely crossing the canvas's bottom edge zone on the way in scrolls the content
+away from where the user is aiming.
+
+**The canvas stops at its bottom edge.** For a chain row, "past the edge" means
+past the window and should scroll at full speed. Below the canvas is the palette
+tray, and a pointer there has asked for nothing. Nothing scrolls while the
+pointer is over the trash, either.
+
+**Zones are measured from the visible viewport** — the frame less
+`contentInsets` — because the canvas extends under the toolbar.
+
 Scrolling is disabled outright (`scrollDisabled(editor.drag.isActive)`) while a
 drag is live, so nothing competes for the gesture.
 
+## Wrapping
+
+With wrap on — the default, toggled from the toolbar — a chain's top level flows
+onto further rows like words in a paragraph, and the wire runs from the end of
+each row down, back across the gutter, and into the start of the next.
+`ChainFlowLayout`, a custom `Layout`, does it. The line breaking and the wire
+geometry are in `FlowArrangement` (no SwiftUI), asserted in
+`Tests/FlowTests.swift`. Wrap off is the same layout given no width, so
+toggling animates tiles between the two arrangements instead of rebuilding the
+view.
+
+**Each element is a flow item carrying its own leading wire.** A tile that wraps
+takes the wire into it along with it, so the return wire only has to reach the
+left margin.
+
+**The drop gap is a separate flow item.** A closed gap has no width and never
+starts a row. An open one wraps like a tile: at the end of the row if there is
+room, otherwise at the start of the next row, directly before the tile it
+precedes. Aim at the end of a full row and the gap opens at the start of the
+next — which is where the item will land.
+
+**The return wire is placed by the layout, not drawn over it.** It is four
+plain rectangles per line break (out, down, back, down), taken from a pool of
+subviews; unused pieces sit at zero size. Frames measured with
+`onGeometryChange` report where tiles will end up, not where they are
+mid-animation, so a wire drawn from them jumps ahead of the tiles whenever an
+opening gap pushes a tile onto the next row. Placed by the layout, the wire
+moves in the same transaction as the tiles. The pieces meet edge to edge
+without overlapping, so the translucent wire colour has no dark corners.
+
+**A wrapped row is still a horizontal scroll view.** Lanes do not wrap, so a
+split section wider than the screen overflows its row, and the row scrolls
+rather than clipping it. The wrap width is measured from the scroll view,
+because a horizontal scroll view proposes no width to its content. Every row
+keeps room at its right for the wire's out stub.
+
 ## Other traps worth keeping
 
-**Eager `HStack`, not `LazyHStack`, for a chain.** Off-screen blocks in a lazy
-stack never register a frame, so the insertion index is wrong as soon as
-auto-scroll moves past the materialised window. It fails only for long chains —
-that is, in use rather than in a quick test. At this element count eager layout
-costs nothing. (The palette tray *is* lazy, which is fine: you can only grab a
+**Eager layout, not lazy, for a chain.** Off-screen blocks in a lazy stack
+never register a frame, so the insertion index is wrong as soon as auto-scroll
+moves past the materialised window. It fails only for long chains — that is, in
+use rather than in a quick test. `ChainFlowLayout` and the lanes' `HStack` are
+both eager, and at this element count that costs nothing. (The palette tray *is* lazy, which is fine: you can only grab a
 tile you can see, and tiles unregister on disappear.)
 
 **Re-resolve the source address at drop.** `commitDrop` looks the element up by

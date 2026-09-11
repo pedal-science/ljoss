@@ -17,6 +17,14 @@ enum Metrics {
     /// Vertical gap between parallel lanes.
     static let laneSpacing: CGFloat = 12
 
+    /// Stroke weight of the signal wire.
+    static let wireThickness: CGFloat = 3
+    /// Vertical gap between the rows of a wrapped chain. The return wire runs
+    /// back across the middle of it, so it needs room either side.
+    static let wrapRowSpacing: CGFloat = 32
+    /// Inset of a chain's tiles from the edges of its row.
+    static let canvasPadding: CGFloat = 16
+
     /// A palette tile in the tray.
     static let paletteItemWidth: CGFloat = 132
     static let paletteItemHeight: CGFloat = 86

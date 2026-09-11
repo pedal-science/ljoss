@@ -31,9 +31,10 @@ xcodebuild -project RigDesigner.xcodeproj -scheme RigDesigner -destination 'plat
 ./Tests/run-model-tests.sh
 ```
 
-Assertions for the tree edits and the drag slot mapping — the places where a
-mistake is silent rather than a crash. `Model/` has no SwiftUI dependency, so
-this compiles with plain `swiftc`: no test host, no scheme, a few seconds.
+Assertions for the tree edits, the drag slot mapping, and wrapped-row layout
+and hit testing — the places where a mistake is silent rather than a crash.
+None of it depends on SwiftUI, so this compiles with plain `swiftc`: no test
+host, no scheme, a few seconds.
 
 ## Documentation
 
@@ -52,7 +53,7 @@ bugs.
 | Path | What lives there |
 | --- | --- |
 | `RigDesigner/Model/` | The rig tree, addressing, and the insert/move/remove/normalise algorithms. No SwiftUI. |
-| `RigDesigner/DragEngine/` | Drag state, the frame registry and hit testing, the render-slot mapping, and the gesture. |
+| `RigDesigner/DragEngine/` | Drag state, the frame registry and hit testing, the render-slot mapping, wrapped-row geometry, auto-scroll, and the gesture. |
 | `RigDesigner/Views/` | Canvas, node tiles, palette tray, inspector, rig library, and the sizing and colour tokens. |
 | `RigDesigner/Store/` | Rig persistence (one JSON file per rig) and the starter rigs. |
 | `RigDesigner/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. |

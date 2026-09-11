@@ -46,9 +46,13 @@ struct DragSurfaceGesture: ViewModifier {
                     begin(at: value.startLocation, current: value.location)
                 }
             }
-            .onEnded { _ in
+            .onEnded { value in
                 guard isLifted else { return }
                 isLifted = false
+                // Drop where the button came up. The release can arrive at a
+                // point no movement was reported for, and the target would
+                // otherwise be the one from the last reported move.
+                editor.updateDrag(pointerGlobal: value.location)
                 editor.commitDrop()
             }
     }
@@ -66,9 +70,13 @@ struct DragSurfaceGesture: ViewModifier {
                     begin(at: drag.startLocation, current: drag.location)
                 }
             }
-            .onEnded { _ in
+            .onEnded { value in
                 guard isLifted else { return }
                 isLifted = false
+                // Drop where the finger lifted; see the macOS branch.
+                if case .second(true, let drag?) = value {
+                    editor.updateDrag(pointerGlobal: drag.location)
+                }
                 editor.commitDrop()
             }
     }

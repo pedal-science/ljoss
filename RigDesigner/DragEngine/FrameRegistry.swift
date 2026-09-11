@@ -23,8 +23,10 @@ final class FrameRegistry {
 
     private(set) var containers: [ContainerPath: ContainerInfo] = [:]
     private(set) var elements: [UUID: CGRect] = [:]
-    /// Viewport of each chain's scrolling row, for the auto-scroll edge zones.
-    private(set) var chainViewports: [UUID: CGRect] = [:]
+    /// A chain's Input and Output tiles, by its top-level container. They mark
+    /// the ends of the chain for hit testing — which matters once a chain wraps,
+    /// and Output can sit alone on a row below the last block.
+    private(set) var endpoints: [ContainerPath: Endpoints] = [:]
     /// Palette tiles, keyed by component id, so a press in the tray can be
     /// resolved to the component under it.
     private(set) var paletteItems: [String: CGRect] = [:]
@@ -36,12 +38,25 @@ final class FrameRegistry {
         containers[path] = ContainerInfo(rect: rect, depth: depth, renderedIDs: renderedIDs)
     }
 
-    func removeContainer(_ path: ContainerPath) { containers[path] = nil }
+    func removeContainer(_ path: ContainerPath) {
+        containers[path] = nil
+        endpoints[path] = nil
+    }
+
+    struct Endpoints {
+        var leading: CGRect?
+        var trailing: CGRect?
+    }
+
+    func setEndpoint(_ edge: HorizontalEdge, rect: CGRect, for path: ContainerPath) {
+        switch edge {
+        case .leading: endpoints[path, default: Endpoints()].leading = rect
+        case .trailing: endpoints[path, default: Endpoints()].trailing = rect
+        }
+    }
 
     func setElement(_ id: UUID, rect: CGRect) { elements[id] = rect }
     func removeElement(_ id: UUID) { elements[id] = nil }
-
-    func setChainViewport(_ id: UUID, rect: CGRect) { chainViewports[id] = rect }
 
     func setPaletteItem(_ componentID: String, rect: CGRect) { paletteItems[componentID] = rect }
     func removePaletteItem(_ componentID: String) { paletteItems[componentID] = nil }
@@ -69,7 +84,7 @@ final class FrameRegistry {
     func reset() {
         containers.removeAll()
         elements.removeAll()
-        chainViewports.removeAll()
+        endpoints.removeAll()
         paletteItems.removeAll()
         trashRect = .zero
     }
@@ -82,7 +97,7 @@ final class FrameRegistry {
             return .trash
         }
         guard let (path, info) = container(at: point) else { return nil }
-        return .slot(RenderSlot(container: path, renderedIndex: insertionIndex(in: info, at: point)))
+        return .slot(RenderSlot(container: path, renderedIndex: insertionIndex(in: path, info, at: point)))
     }
 
     /// The container the point is over: the deepest one containing it, or —
@@ -109,19 +124,22 @@ final class FrameRegistry {
         return nearestDistance <= Metrics.nodeHeight ? nearest : nil
     }
 
-    /// Which gap in this container the pointer sits in, comparing against the
-    /// horizontal midpoint of each rendered element.
-    private func insertionIndex(in info: ContainerInfo, at point: CGPoint) -> Int {
-        for (i, id) in info.renderedIDs.enumerated() {
-            guard let rect = elements[id] else { continue }
-            if point.x < rect.midX { return i }
+    /// Which gap in this container the pointer sits in: first the row it is
+    /// on, then the first tile on that row whose horizontal midpoint is right
+    /// of it. On a single line that reduces to the midpoint comparison alone.
+    private func insertionIndex(in path: ContainerPath, _ info: ContainerInfo, at point: CGPoint) -> Int {
+        let count = info.renderedIDs.count
+        var marks: [FlowHitTest.Mark] = []
+        if let input = endpoints[path]?.leading {
+            marks.append(.endpoint(slot: 0, input))
         }
-        return info.renderedIDs.count
-    }
-
-    /// Which chain's viewport the pointer is over, for auto-scrolling.
-    func chain(at point: CGPoint) -> UUID? {
-        chainViewports.first { $0.value.contains(point) }?.key
+        for (i, id) in info.renderedIDs.enumerated() {
+            if let rect = elements[id] { marks.append(.element(i, rect)) }
+        }
+        if let output = endpoints[path]?.trailing {
+            marks.append(.endpoint(slot: count, output))
+        }
+        return FlowHitTest.insertionIndex(marks: marks, count: count, at: point)
     }
 }
 

@@ -107,11 +107,27 @@ struct EndpointTile: View {
 // MARK: - Connector and gap
 
 /// The wire between two nodes.
+///
+/// In a chain's top level each tile carries one of these on its leading side,
+/// so a tile that wraps onto a new row takes the wire into it along with it.
 struct Connector: View {
     var body: some View {
         Rectangle()
             .fill(.tertiary)
-            .frame(width: Metrics.nodeSpacing, height: 3)
+            .frame(width: Metrics.nodeSpacing, height: Metrics.wireThickness)
+    }
+}
+
+/// Dashed outline marking an element list with nothing in it yet.
+struct DryOutline: View {
+    var body: some View {
+        RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous)
+            .strokeBorder(.quaternary, style: StrokeStyle(lineWidth: 2, dash: [6, 6]))
+            .overlay {
+                Text("Dry")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.tertiary)
+            }
     }
 }
 

@@ -4,6 +4,9 @@ struct RigEditorView: View {
     @State private var editor: RigEditor
     @State private var paletteSource: SourceKind
     @State private var showingInspector = false
+    /// A viewing preference, not part of the rig: on by default, remembered
+    /// across launches, and the same for every rig.
+    @AppStorage("wrapsChains") private var wrapsChains = true
 
     private let library: RigLibrary
 
@@ -59,7 +62,7 @@ struct RigEditorView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 20) {
                 ForEach(editor.rig.activeChains) { chain in
-                    ChainRowView(chain: chain)
+                    ChainRowView(chain: chain, wraps: wrapsChains)
                 }
 
                 if editor.rig.activeChains.allSatisfy({ $0.elements.isEmpty }) {
@@ -69,6 +72,10 @@ struct RigEditorView: View {
             .padding(.vertical, 16)
         }
         .scrollDisabled(editor.drag.isActive)
+        // Wrapped chains can outgrow the screen vertically, so the canvas
+        // auto-scrolls too. Not past its bottom edge, though: below it is the
+        // palette tray, and a pointer there has not asked for anything.
+        .dragAutoScroll(.vertical, scrollsPastTrailingEdge: false)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -88,6 +95,20 @@ struct RigEditorView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Toggle(isOn: $wrapsChains) {
+                Label {
+                    Text("Wrap")
+                } icon: {
+                    WrapToggleIcon(wraps: wrapsChains)
+                }
+            }
+            .toggleStyle(.button)
+            .help(wrapsChains
+                  ? "Wrap on: chains continue on the next row"
+                  : "Wrap off: chains stay on one row and scroll")
+            .accessibilityLabel(Text("Wrap Chains"))
+        }
         ToolbarItem(placement: .primaryAction) {
             Menu {
                 Picker("Layout", selection: layoutBinding) {

@@ -183,6 +183,11 @@ drag is a custom gesture tracked in the global coordinate space, so tray and
 canvas being under one root is what makes dragging between them the same code
 path as reordering within a chain.
 
+**Wrap is a viewing preference, not rig data.** It is stored with
+`@AppStorage`, shared by every rig and never written into one, so toggling it
+cannot mark a rig modified or change its file. How the wrapped layout and its
+drag targeting work is in [DRAG-ENGINE.md](DRAG-ENGINE.md#wrapping).
+
 ### Sizing
 
 `Metrics` holds the numbers. The brief was that nothing may be too small to hit
@@ -219,23 +224,33 @@ no conditional compilation for haptics.
 ## Tests
 
 `Tests/` holds assertions for the model layer — the tree edits and the
-render-slot mapping, which is where correctness is subtle and where a
-regression is silent rather than a crash:
+render-slot mapping — and for the wrapped-row geometry and hit testing. That is
+where correctness is subtle and where a regression is silent rather than a
+crash:
 
 ```bash
 ./Tests/run-model-tests.sh
 ```
 
-It compiles `Model/` plus the mapping with `swiftc` and runs the assertions. No
-test host, no scheme, about five seconds. Because `Model/` has no SwiftUI
-dependency this needs nothing from Xcode beyond a toolchain.
+It compiles `Model/`, the mapping and the flow geometry with `swiftc` and runs
+the assertions. No test host, no scheme, about five seconds. None of those
+sources depend on SwiftUI, so this needs nothing from Xcode beyond a
+toolchain.
 
 ## Verified, and not
 
 Driven against the running macOS app: reorder within a chain; palette → chain
 insert; drag-to-remove; drag a block into a parallel lane and back out again
 leaving a preserved dry lane; tap-to-select opening the inspector; autosave
-round-tripping.
+round-tripping. With wrap on: rows breaking at the window width, the wire
+returning beneath each row into the next, toggling wrap off and back on, both
+toolbar icons, and a reorder between wrapped rows landing in the slot aimed at.
+
+Not yet seen live: **hover feedback across wrapped rows** — the gap opening at
+the start of the next row, and the canvas scrolling vertically. The automation
+used so far delivers no pointer movement between press and release, so it can
+check where a drop lands but not what happens on the way. The rules behind both
+are asserted in `Tests/FlowTests.swift`.
 
 Not yet exercised: **the iOS touch path**. It compiles and the shell adapts,
 but the long-press-to-lift gesture has never run on a device or simulator.
