@@ -206,7 +206,26 @@ because it did not: `method` began life as a computed property, and synthesised
 Both platforms build, and the macOS app has been run and driven by hand — the status
 control, its refusal list, the settings sheet, and the inspector.
 
-**No part of this has yet talked to a real daemon.** `namchaind` and `namchainctl`
-are Linux-only CMake targets, so end to end needs a Linux host, a container, or the
-board. When that happens, the first thing to check is `nc.split`'s `outputs`: it is
-declared `ParamKind::Flag` with a default of 2, and we send a JSON number.
+**This has now talked to a real daemon.** `namchaind` builds on macOS as of namchain's
+`macos-host` branch, so the whole path runs on one laptop: a WAV looped in as a virtual
+input, the output streamed to a pipe, and this app driving it over TCP. What that
+established, in order:
+
+- The engine is transparent when asked to be. An empty chain and a chain holding one
+  `util.gain` at its 0 dB default both come back **bit-exact** — `max|a-b|` is 0 across
+  116 s — through `namchain-render` and through `namchaind --backend file` alike. A
+  third rig at +6 dB is the control and fails by exactly 10^(6/20).
+- The bytes under test are this app's. `Tools/dump-engine-document.sh` prints what
+  `DocumentEncoder` produces for a named rig, and namchain's `tools/macos/null-test.sh`
+  takes a directory of those as its input. There is no second encoder to drift.
+- `EngineClient` completes the handshake, `rig.apply` is accepted, and
+  `audible_generation` catches up — which is the only thing that says a rig is being
+  heard rather than acknowledged. `Tools/check-device.sh` is that check, and it needs a
+  daemon, so it is a tool rather than a test.
+
+Still open: `nc.split`'s `outputs` is declared `ParamKind::Flag` with a default of 2 and
+we send a JSON number. One chain with no parallel section never reaches it, so the runs
+above say nothing about it — drop a parallel in and watch.
+
+And nothing here has been near the board, an audio interface, or iOS. The local-network
+permission prompt still has never appeared, because macOS does not ask for one.

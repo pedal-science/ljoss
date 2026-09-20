@@ -40,6 +40,22 @@ testing, and the engine encoder and wire format — the places where a mistake i
 silent rather than a crash. None of it depends on SwiftUI, so this compiles with
 plain `swiftc`: no test host, no scheme, a few seconds.
 
+Two things cannot be asserted against a fixture, because they are claims about
+another process:
+
+```bash
+./Tools/dump-engine-document.sh gain0 --bare    # what the encoder would send
+./Tools/check-device.sh 127.0.0.1 47810 /tmp/nc/token
+```
+
+The first prints a named rig as this app would put it on the wire; point
+namchain's `tools/macos/null-test.sh` at a directory of them and the null test is
+about *these* bytes rather than JSON written to resemble them. The second
+connects, applies, and waits for `audible_generation` — the field that separates
+a rig the engine acknowledged from one it is actually playing. Both need a daemon,
+which is why they are tools and not tests. See
+[docs/ENGINE.md](docs/ENGINE.md#verified-and-not).
+
 ## Documentation
 
 - **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** — the routing model and why
@@ -66,6 +82,7 @@ bugs.
 | `RigDesigner/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. No SwiftUI. |
 | `RigDesigner/Engine/` | The namchain client. The wire types, the block mapping, the tree-to-graph encoder, the protocol types and the framing have no SwiftUI and no Network, so they compile into the test runner; the client, settings and session sit above them. |
 | `Tests/` | Model-layer, flow-geometry, encoder and wire assertions, and their runner. |
+| `Tools/` | Two things that need a real engine rather than a fixture: a dump of what the encoder would send, and a handshake-and-apply against a running daemon. |
 
 Rigs are stored as JSON under
 `~/Library/Application Support/RigDesigner/Rigs/`, one file per rig.
