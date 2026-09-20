@@ -34,6 +34,26 @@ struct ComponentSpec: Identifiable, Hashable, Sendable {
 enum ComponentCategory: String, Codable, CaseIterable, Sendable, Hashable, Identifiable {
     case amp, cab, drive, dynamics, eq, modulation, delay, reverb, pitch, filter, vocal, utility
     var id: String { rawValue }
+
+    /// Lives here rather than with the design tokens because `Catalogue.search`
+    /// matches on it: a name the catalogue itself reads belongs at the catalogue's
+    /// layer, not above it. The colour and the symbol stay in `DesignSystem`.
+    var displayName: String {
+        switch self {
+        case .amp: "Amp"
+        case .cab: "Cab / IR"
+        case .drive: "Drive"
+        case .dynamics: "Dynamics"
+        case .eq: "EQ"
+        case .modulation: "Modulation"
+        case .delay: "Delay"
+        case .reverb: "Reverb"
+        case .pitch: "Pitch"
+        case .filter: "Filter"
+        case .vocal: "Vocal"
+        case .utility: "Utility"
+        }
+    }
 }
 
 /// The static library of components, plus the specs for the fixed endpoints.

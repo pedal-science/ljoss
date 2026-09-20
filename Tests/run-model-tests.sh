@@ -14,8 +14,17 @@ sources=(
   "$root"/RigDesigner/DragEngine/RenderSlotMapping.swift
   "$root"/RigDesigner/DragEngine/FlowGeometry.swift
   "$root"/RigDesigner/Store/RigFactory.swift
+  "$root"/RigDesigner/Catalogue/Catalogue.swift
+  "$root"/RigDesigner/Catalogue/CatalogueData.swift
+  "$root"/RigDesigner/Engine/EngineDocument.swift
+  "$root"/RigDesigner/Engine/BlockMapping.swift
+  "$root"/RigDesigner/Engine/DocumentEncoder.swift
+  "$root"/RigDesigner/Engine/EngineProtocol.swift
+  "$root"/RigDesigner/Engine/EngineFraming.swift
   "$root"/Tests/ModelTests.swift
   "$root"/Tests/FlowTests.swift
+  "$root"/Tests/EncoderTests.swift
+  "$root"/Tests/WireTests.swift
   "$root"/Tests/main.swift
 )
 

@@ -10,9 +10,9 @@ struct RigEditorView: View {
 
     private let library: RigLibrary
 
-    init(rig: Rig, library: RigLibrary) {
+    init(rig: Rig, library: RigLibrary, engine: EngineSession) {
         self.library = library
-        _editor = State(initialValue: RigEditor(rig: rig, library: library))
+        _editor = State(initialValue: RigEditor(rig: rig, library: library, engine: engine))
         _paletteSource = State(initialValue: rig.chains.first?.source ?? .guitar)
     }
 
@@ -95,6 +95,9 @@ struct RigEditorView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            EngineStatusControl()
+        }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: $wrapsChains) {
                 Label {

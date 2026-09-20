@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(RigLibrary.self) private var library
+    @Environment(EngineSession.self) private var engine
     @State private var selection: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
 
@@ -56,7 +57,7 @@ struct ContentView: View {
         if let rig = library.rig(id: id) {
             // Keyed by rig id so switching rigs builds a fresh editor rather
             // than carrying the previous rig's drag and selection state over.
-            RigEditorView(rig: rig, library: library)
+            RigEditorView(rig: rig, library: library, engine: engine)
                 .id(id)
         } else {
             ContentUnavailableView("Rig Unavailable", systemImage: "questionmark.folder")

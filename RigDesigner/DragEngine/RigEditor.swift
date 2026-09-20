@@ -6,7 +6,14 @@ import SwiftUI
 final class RigEditor {
 
     var rig: Rig {
-        didSet { if rig != oldValue { library?.update(rig) } }
+        didSet {
+            guard rig != oldValue else { return }
+            library?.update(rig)
+            // The device is told separately and decides for itself when: a drag is
+            // local, a drop is one commit, and the session's own debounce coalesces
+            // the burst an edit produces into one `rig.apply`.
+            engine?.rigDidChange(rig)
+        }
     }
 
     /// What the inspector is showing.
@@ -25,10 +32,15 @@ final class RigEditor {
     @ObservationIgnored let registry = FrameRegistry()
 
     @ObservationIgnored private weak var library: RigLibrary?
+    @ObservationIgnored private weak var engine: EngineSession?
 
-    init(rig: Rig, library: RigLibrary?) {
+    init(rig: Rig, library: RigLibrary?, engine: EngineSession? = nil) {
         self.rig = rig
         self.library = library
+        self.engine = engine
+        // So the canvas can badge what this device cannot play before anything is
+        // dragged, and so a freshly opened rig reaches a connected device.
+        engine?.rigDidChange(rig)
     }
 
     // MARK: - Drag lifecycle

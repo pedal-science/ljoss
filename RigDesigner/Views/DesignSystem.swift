@@ -86,23 +86,6 @@ extension ComponentCategory {
         }
     }
 
-    var displayName: String {
-        switch self {
-        case .amp: "Amp"
-        case .cab: "Cab / IR"
-        case .drive: "Drive"
-        case .dynamics: "Dynamics"
-        case .eq: "EQ"
-        case .modulation: "Modulation"
-        case .delay: "Delay"
-        case .reverb: "Reverb"
-        case .pitch: "Pitch"
-        case .filter: "Filter"
-        case .vocal: "Vocal"
-        case .utility: "Utility"
-        }
-    }
-
     var symbol: String {
         switch self {
         case .amp: "amplifier"

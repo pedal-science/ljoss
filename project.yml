@@ -25,6 +25,9 @@ targets:
         INFOPLIST_KEY_CFBundleDisplayName: Rig Designer
         INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
+        # iOS 14+ refuses a connection to a LAN address without this, and it fails
+        # silently rather than with an error a client can report.
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Rig Designer connects to your namchain device on the local network to send it the rig you are editing."
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_STYLE: Automatic
         CODE_SIGNING_REQUIRED: "NO"

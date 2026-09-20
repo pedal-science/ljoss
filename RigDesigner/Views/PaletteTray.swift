@@ -148,12 +148,25 @@ struct CategoryChip: View {
 struct PaletteItem: View {
     let spec: ComponentSpec
     @Environment(RigEditor.self) private var editor
+    @Environment(EngineSession.self) private var session: EngineSession?
+
+    /// False while offline: the palette shows every block until a device says
+    /// otherwise, because designing without one is the normal case.
+    private var isUnplayable: Bool { session?.canPlay(spec.id) == false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Image(systemName: spec.symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(spec.category.accent)
+            HStack(spacing: 4) {
+                Image(systemName: spec.symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(spec.category.accent)
+                Spacer(minLength: 0)
+                if isUnplayable {
+                    Image(systemName: "waveform.slash")
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.orange)
+                }
+            }
             Spacer(minLength: 0)
             Text(spec.name)
                 .font(.system(size: 13, weight: .semibold))
@@ -174,6 +187,7 @@ struct PaletteItem: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .strokeBorder(spec.category.accent.opacity(0.35), lineWidth: 1.5)
         }
+        .opacity(isUnplayable ? 0.55 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .reportGlobalFrame { editor.registry.setPaletteItem(spec.id, rect: $0) }
         .onDisappear { editor.registry.removePaletteItem(spec.id) }
@@ -186,7 +200,9 @@ struct PaletteItem: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(spec.name))
-        .accessibilityHint(Text("Double tap to add to the end of the chain, or drag onto the chain"))
+        .accessibilityHint(Text(isUnplayable
+                                ? "Not available on the connected device. Double tap to add anyway, or drag onto the chain"
+                                : "Double tap to add to the end of the chain, or drag onto the chain"))
     }
 }
 

@@ -9,7 +9,12 @@ struct NodeTile: View {
     var isSelected: Bool = false
     var isGhost: Bool = false
 
+    /// Optional so the tile still renders with no device set up, and in a preview.
+    /// `canPlay` is nil while offline: "unknown" is not "unavailable".
+    @Environment(EngineSession.self) private var session: EngineSession?
+
     private var spec: ComponentSpec { Catalogue.resolve(block.componentID) }
+    private var isUnplayable: Bool { session?.canPlay(block.componentID) == false }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -18,6 +23,11 @@ struct NodeTile: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(block.isEnabled ? spec.category.accent : .secondary)
                 Spacer(minLength: 0)
+                if isUnplayable {
+                    Image(systemName: "waveform.slash")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.orange)
+                }
                 if !block.isEnabled {
                     Image(systemName: "power")
                         .font(.system(size: 12, weight: .bold))
@@ -56,7 +66,9 @@ struct NodeTile: View {
         .shadow(color: .black.opacity(isGhost ? 0.32 : 0), radius: isGhost ? 18 : 0, y: isGhost ? 10 : 0)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(spec.name))
-        .accessibilityHint(Text(block.isEnabled ? "Enabled" : "Bypassed"))
+        .accessibilityHint(Text(isUnplayable
+                                ? "Not available on the connected device"
+                                : (block.isEnabled ? "Enabled" : "Bypassed, and still running")))
     }
 }
 
