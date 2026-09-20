@@ -10,35 +10,11 @@ import Foundation
 @main
 enum DumpDocument {
 
-    /// One chain, nothing in it: `nc.input` straight to `nc.output`. The null test.
-    private static func emptyRig() -> Rig {
-        RigFactory.emptyRig(name: "Empty", layout: .single)
-    }
-
-    /// One chain, one Gain block. Left at the catalogue default it is 0 dB, which lowers
-    /// to `nc.gain` with `gain_db: 0` — exactly unity, so this is a null test too. Given a
-    /// value it is the control: a test that cannot fail is not measuring anything.
-    private static func gainRig(decibels: Double?) -> Rig {
-        var rig = RigFactory.emptyRig(name: decibels == nil ? "Gain" : "Gain \(decibels!)",
-                                      layout: .single)
-        var block = Block(componentID: "util.gain")
-        if let decibels { block.values["gain"] = .number(decibels) }
-        rig.chains[0].elements = [.block(block)]
-        return rig
-    }
-
-    private static let rigs: [String: @Sendable () -> Rig] = [
-        "empty": emptyRig,
-        "gain0": { gainRig(decibels: nil) },
-        "gain6": { gainRig(decibels: 6.0) },
-    ]
-
     static func main() throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        guard let name = arguments.first, let make = rigs[name] else {
-            let names = rigs.keys.sorted().joined(separator: "|")
+        guard let name = arguments.first, let make = TestRigs.byName[name] else {
             FileHandle.standardError.write(Data(
-                "usage: dump-engine-document <\(names)> [--bare]\n".utf8))
+                "usage: dump-engine-document <\(TestRigs.names)> [--bare]\n".utf8))
             exit(2)
         }
 

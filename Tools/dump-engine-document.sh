@@ -16,6 +16,7 @@ sources=(
   "$root"/RigDesigner/Engine/EngineDocument.swift
   "$root"/RigDesigner/Engine/BlockMapping.swift
   "$root"/RigDesigner/Engine/DocumentEncoder.swift
+  "$root"/Tools/TestRigs.swift
   "$root"/Tools/DumpDocument.swift
 )
 

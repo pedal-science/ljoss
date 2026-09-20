@@ -21,7 +21,7 @@ enum CheckDevice {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard arguments.count >= 3, let port = UInt16(arguments[1]) else {
             FileHandle.standardError.write(Data(
-                "usage: check-device HOST PORT TOKEN [empty|gain0|gain6]\n".utf8))
+                "usage: check-device HOST PORT TOKEN [\(TestRigs.names)]\n".utf8))
             exit(2)
         }
         let rigName = arguments.count > 3 ? arguments[3] : "gain0"
@@ -40,14 +40,11 @@ enum CheckDevice {
             say("health     \(status?.health ?? "?"), issues "
                 + "\((status?.issues ?? []).map { $0.code })")
 
-            var rig = RigFactory.emptyRig(name: "Check", layout: .single)
-            if rigName != "empty" {
-                var block = Block(componentID: "util.gain")
-                if rigName == "gain6" { block.values["gain"] = .number(6.0) }
-                rig.chains[0].elements = [.block(block)]
+            guard let make = TestRigs.byName[rigName] else {
+                say("FAILED: no rig called '\(rigName)'; try one of \(TestRigs.names)")
+                exit(2)
             }
-
-            let encoded = DocumentEncoder.encode(rig)
+            let encoded = DocumentEncoder.encode(make())
             for refusal in encoded.refusals { say("refused    \(refusal.chain): \(refusal.message)") }
             guard let document = encoded.document else { exit(1) }
 

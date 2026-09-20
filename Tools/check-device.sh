@@ -25,6 +25,7 @@ sources=(
   "$root"/RigDesigner/Engine/EngineProtocol.swift
   "$root"/RigDesigner/Engine/EngineFraming.swift
   "$root"/RigDesigner/Engine/EngineClient.swift
+  "$root"/Tools/TestRigs.swift
   "$root"/Tools/CheckDevice.swift
 )
 
