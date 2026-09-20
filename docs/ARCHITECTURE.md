@@ -5,7 +5,8 @@ gone another way, the alternative and the reason it lost are recorded — those
 are the parts most likely to be "simplified" back into bugs.
 
 See [DRAG-ENGINE.md](DRAG-ENGINE.md) for the drag pipeline, which is the most
-intricate part and has its own document.
+intricate part and has its own document, and [ENGINE.md](ENGINE.md) for how a rig
+reaches a namchain device.
 
 ## Layers
 
@@ -13,6 +14,7 @@ intricate part and has its own document.
 App/          Scene, and the split-view / stack shell
 Views/        Canvas, node tiles, palette tray, inspector, library, design tokens
 DragEngine/   Drag state, frame registry, hit testing, slot mapping, the gesture
+Engine/       The namchain client: block mapping, the encoder, framing, the session
 Model/        The rig tree, addressing, and the edit algorithms
 Store/        Persistence and starter content
 Catalogue/    The 102 effect blocks and their parameters
@@ -20,7 +22,12 @@ Catalogue/    The 102 effect blocks and their parameters
 
 Dependencies point downward. `Model/` knows nothing about SwiftUI and compiles
 standalone — which is what lets `Tests/` exercise it with a plain `swiftc`
-invocation and no test host.
+invocation and no test host. `Catalogue/` and the lower half of `Engine/` hold the
+same line for the same reason: the encoder is where a silent mistake is most
+expensive, so it has to be cheap to assert.
+
+`Engine/` sits above `Model/` and `Catalogue/` and below `Views/`. It reads a rig
+and never writes one — see [ENGINE.md](ENGINE.md).
 
 ## The routing model
 
@@ -224,18 +231,23 @@ no conditional compilation for haptics.
 ## Tests
 
 `Tests/` holds assertions for the model layer — the tree edits and the
-render-slot mapping — and for the wrapped-row geometry and hit testing. That is
-where correctness is subtle and where a regression is silent rather than a
-crash:
+render-slot mapping — for the wrapped-row geometry and hit testing, and for the
+engine encoder and the wire format. That is where correctness is subtle and where a
+regression is silent rather than a crash:
 
 ```bash
 ./Tests/run-model-tests.sh
 ```
 
-It compiles `Model/`, the mapping and the flow geometry with `swiftc` and runs
-the assertions. No test host, no scheme, about five seconds. None of those
-sources depend on SwiftUI, so this needs nothing from Xcode beyond a
-toolchain.
+It compiles `Model/`, `Catalogue/`, the slot mapping, the flow geometry and the
+SwiftUI-free half of `Engine/` with `swiftc` and runs the assertions. No test host,
+no scheme, about five seconds. None of those sources depend on SwiftUI, so this
+needs nothing from Xcode beyond a toolchain.
+
+It is not a substitute for a build, though. Swift's region-based isolation
+diagnostics run in a later pass than `swiftc -typecheck`, so a file can typecheck
+cleanly and still fail `xcodebuild` with a data race — which is how
+`EngineClient`'s continuation wrapper was caught.
 
 ## Verified, and not
 
@@ -255,3 +267,9 @@ are asserted in `Tests/FlowTests.swift`.
 Not yet exercised: **the iOS touch path**. It compiles and the shell adapts,
 but the long-press-to-lift gesture has never run on a device or simulator.
 That is the first thing to test on hardware.
+
+Also not yet exercised: **a real namchain daemon**. The device controls have been
+driven by hand against no device, which is the honest offline case and the one that
+shows the refusal list; but `namchaind` is a Linux-only target, so nothing here has
+completed a handshake or applied a document. See
+[ENGINE.md](ENGINE.md#verified-and-not).
