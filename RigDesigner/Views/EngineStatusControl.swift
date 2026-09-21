@@ -3,20 +3,24 @@ import SwiftUI
 // The device, as one small control that glows until it doesn't.
 //
 // `health` is one word the engine derives from its own issues, so the light and the
-// list can never disagree. The codes are stable and machine-readable; this maps them
-// to words of our own and shows the engine's message underneath, because the engine's
-// prose names the node and lists the alternatives and re-deriving that here is how
-// two clients end up saying different things.
+// list can never disagree. The codes are stable and machine-readable; `EngineWords`
+// maps them to words of our own, because the engine's prose names the node and lists
+// the alternatives and re-deriving that here is how two clients end up saying
+// different things.
+//
+// It used to open a popover holding everything about the device, with the address and
+// the token one sheet further in. That is Settings → Hardware now, and this button is
+// the shortcut to it: one control, one destination, and the dot still says at a glance
+// what the page says in full.
 
 struct EngineStatusControl: View {
     @Environment(EngineSession.self) private var session
-    @State private var showingDetail = false
-    @State private var showingSettings = false
+
+    /// Raised by the toolbar item, which lives in the window rather than on this page.
+    var openSettings: () -> Void = {}
 
     var body: some View {
-        Button {
-            showingDetail = true
-        } label: {
+        Button(action: openSettings) {
             Label {
                 Text("Device")
             } icon: {
@@ -26,24 +30,6 @@ struct EngineStatusControl: View {
         .help(summary)
         .accessibilityLabel(Text("Device"))
         .accessibilityValue(Text(summary))
-        .popover(isPresented: $showingDetail, arrowEdge: .bottom) {
-            EngineStatusDetail(editSettings: {
-                // Dismiss the popover first: a sheet presented from inside one is
-                // anchored to the popover, so it hangs off the window's edge instead
-                // of sitting over the window the way a sheet should.
-                showingDetail = false
-                showingSettings = true
-            })
-            .environment(session)
-            // Narrow on purpose: this hangs off a right-hand toolbar item, so a
-            // wide popover runs off the edge of the window.
-            .frame(width: 300)
-            .frame(maxHeight: 520)
-        }
-        .sheet(isPresented: $showingSettings) {
-            ConnectionSettingsView()
-                .environment(session)
-        }
     }
 
     private var summary: String {
@@ -61,7 +47,10 @@ struct EngineStatusControl: View {
 
 /// The glow. Amber while a change is on its way in, because a structural edit is
 /// dual-rendered and crossfaded rather than instant, and the player can hear it.
-private struct HealthDot: View {
+///
+/// Not private any more: the Hardware settings page shows the same dot next to the
+/// words, so the two can never draw a different colour for the same health.
+struct HealthDot: View {
     let health: String
     let isBusy: Bool
 
@@ -83,170 +72,6 @@ private struct HealthDot: View {
         case "error": .red
         default: .secondary
         }
-    }
-}
-
-// MARK: - The detail
-
-struct EngineStatusDetail: View {
-    @Environment(EngineSession.self) private var session
-
-    /// Raised by the toolbar item, which lives in the window rather than in this
-    /// popover, so the settings sheet is presented over the window.
-    var editSettings: () -> Void = {}
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                connection
-                if !session.refusals.isEmpty { refusals }
-                if let failure = session.lastFailure { refusal(failure) }
-                if !session.issues.isEmpty { issues }
-                if let status = session.status { device(status) }
-                actions
-            }
-            .padding(18)
-        }
-    }
-
-    // MARK: Sections
-
-    private var connection: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(.headline)
-            if let detail = connectionDetail {
-                Text(detail).font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var title: String {
-        switch session.connection {
-        case .offline: "No Device"
-        case .connecting: "Connecting…"
-        case .online: session.status?.rigName.map { "Playing “\($0)”" } ?? "Connected"
-        case .failed: "Could Not Connect"
-        }
-    }
-
-    private var connectionDetail: String? {
-        let address = "\(session.settings.host):\(session.settings.port)"
-        switch session.connection {
-        case .offline:
-            return session.settings.isComplete ? address : "Set up a device to send this rig to one."
-        case .connecting:
-            return address
-        case .failed(let why):
-            return why
-        case .online:
-            guard let status = session.status, let generation = status.generation else { return address }
-            // A reply is an acknowledgement; `audible_generation` catching up is the
-            // completion, and during a crossfade the two differ.
-            return status.isAdopted
-                ? "\(address) · generation \(generation), adopted"
-                : "\(address) · generation \(generation), crossfading in"
-        }
-    }
-
-    /// What this app already knows the device cannot play, before anything is sent.
-    private var refusals: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Not sent", systemImage: "exclamationmark.triangle.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.orange)
-            ForEach(session.refusals, id: \.text) { refusal in
-                Text(refusal.text)
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Text("The rest of the rig is held back until these are resolved: a document is applied whole or not at all.")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    /// The device's own words, shown verbatim.
-    private func refusal(_ failure: EngineFailure) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Label(EngineWords.title(for: failure.code), systemImage: "xmark.octagon.fill")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.red)
-            Text(failure.message)
-                .font(.callout).foregroundStyle(.secondary)
-                .textSelection(.enabled)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private var issues: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Device").font(.subheadline.weight(.semibold))
-            ForEach(session.issues) { issue in
-                HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: EngineWords.symbol(for: issue.severity))
-                        .foregroundStyle(EngineWords.colour(for: issue.severity))
-                        .font(.system(size: 13, weight: .semibold))
-                        .frame(width: 18)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(EngineWords.title(for: issue.code)).font(.callout)
-                        if let message = issue.message {
-                            Text(message).font(.caption).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                    if let count = issue.count, count > 1 {
-                        Text("\(count)").font(.caption.monospacedDigit()).foregroundStyle(.tertiary)
-                    }
-                }
-            }
-        }
-    }
-
-    /// Everything here is startup configuration on the device, in its
-    /// `namchaind.json`. It is shown because it explains what a rig can ask for, and
-    /// it is read-only because changing it means restarting the daemon.
-    private func device(_ status: EngineStatus) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Audio").font(.subheadline.weight(.semibold))
-            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
-                row("State", status.state ?? "—")
-                if let rate = status.sampleRate, let period = status.periodSize {
-                    row("Clock", "\(rate) Hz · \(period) frames")
-                }
-                row("Channels", "\(status.captureChannels ?? 1) in, \(status.playbackChannels ?? 1) out")
-                if let xruns = status.xruns { row("Xruns", "\(xruns)") }
-            }
-            .font(.callout)
-        }
-    }
-
-    private func row(_ name: String, _ value: String) -> some View {
-        GridRow {
-            Text(name).foregroundStyle(.secondary)
-            Text(value).monospacedDigit()
-        }
-    }
-
-    private var actions: some View {
-        HStack(spacing: 10) {
-            if session.connection.isOnline {
-                Button("Re-send Rig") { Task { await session.resend() } }
-                    .disabled(session.isSending)
-                Button("Disconnect") { session.disconnect() }
-            } else {
-                Button("Connect") { Task { await session.connect() } }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!session.settings.isComplete)
-            }
-            Spacer()
-            Button("Settings…", action: editSettings)
-        }
-        .frame(minHeight: Metrics.minTouchTarget)
     }
 }
 

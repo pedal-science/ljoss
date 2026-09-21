@@ -9,9 +9,14 @@ struct RigEditorView: View {
     @AppStorage("wrapsChains") private var wrapsChains = true
 
     private let library: RigLibrary
+    /// Settings is the window's mode, not this view's, so the button that opens them is
+    /// handed in — and the device control, which used to open a popover of its own, now
+    /// goes to the same page.
+    private let openSettings: () -> Void
 
-    init(rig: Rig, library: RigLibrary, engine: EngineSession) {
+    init(rig: Rig, library: RigLibrary, engine: EngineSession, openSettings: @escaping () -> Void = {}) {
         self.library = library
+        self.openSettings = openSettings
         _editor = State(initialValue: RigEditor(rig: rig, library: library, engine: engine))
         _paletteSource = State(initialValue: rig.chains.first?.source ?? .guitar)
     }
@@ -96,7 +101,7 @@ struct RigEditorView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            EngineStatusControl()
+            EngineStatusControl(openSettings: openSettings)
         }
         ToolbarItem(placement: .primaryAction) {
             Toggle(isOn: $wrapsChains) {

@@ -66,6 +66,9 @@ which is why they are tools and not tests. See
 - **[docs/ENGINE.md](docs/ENGINE.md)** — talking to a namchain device: who flattens
   what, which blocks the engine can actually play and how the rest are kept honest,
   and the transport.
+- **[docs/ASSETS.md](docs/ASSETS.md)** — the app's own model and IR library: where the
+  folders come from, what a scan re-reads and what it prunes, how a brand is worked
+  out, and why nothing here reaches the device.
 
 Each records the reasoning behind decisions that could plausibly have gone the
 other way, because those are the ones most likely to be "simplified" back into
@@ -77,10 +80,11 @@ bugs.
 | --- | --- |
 | `RigDesigner/Model/` | The rig tree, addressing, and the insert/move/remove/normalise algorithms. No SwiftUI. |
 | `RigDesigner/DragEngine/` | Drag state, the frame registry and hit testing, the render-slot mapping, wrapped-row geometry, auto-scroll, and the gesture. |
-| `RigDesigner/Views/` | Canvas, node tiles, palette tray, inspector, rig library, and the sizing and colour tokens. |
+| `RigDesigner/Views/` | Canvas, node tiles, palette tray, inspector, rig library, the settings areas and their pages, and the sizing and colour tokens. |
 | `RigDesigner/Store/` | Rig persistence (one JSON file per rig) and the starter rigs. |
 | `RigDesigner/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. No SwiftUI. |
 | `RigDesigner/Engine/` | The namchain client. The wire types, the block mapping, the tree-to-graph encoder, the protocol types and the framing have no SwiftUI and no Network, so they compile into the test runner; the client, settings and session sit above them. |
+| `RigDesigner/Assets/` | The user's own models and impulse responses: the configured folders, the bounded sniff of a `.nam` or `.wav`, the brand table, the scan and its ordering, and the store above them. The five lower files have no SwiftUI, so they compile into the test runner. |
 | `Tests/` | Model-layer, flow-geometry, encoder and wire assertions, and their runner. |
 | `Tools/` | Two things that need a real engine rather than a fixture: a dump of what the encoder would send, and a handshake-and-apply against a running daemon. |
 
@@ -91,13 +95,21 @@ Rigs are stored as JSON under
 
 The macOS build is exercised: reordering, palette-to-chain insertion,
 drag-to-remove, dragging into and out of a parallel lane, the inspector, autosave,
-and the device controls — the status popover and its refusal list, the connection
-sheet, and the out-of-band labelling.
+wrap, the device controls, and the settings view — the areas list swapping the rig
+library out, the Hardware page the status popover and the connection sheet were folded
+into, and the Models & IRs page driven against real folders of captures: brands read
+from metadata and guessed from filenames, models before impulse responses, `Unknown`
+last, and the scan indicator appearing, reporting and clearing.
 
 **The iOS touch path is unverified.** It compiles and the shell adapts, but the
 long-press-to-lift gesture has not been run on a device or simulator.
 
-**Nothing has talked to a real namchain daemon yet.** The encoder, the framing and
-the protocol types are all asserted against the published contract, but `namchaind`
-is a Linux-only target, so end to end needs a Linux host or the board. See
-[docs/ENGINE.md](docs/ENGINE.md#verified-and-not).
+**The Hardware form has not been typed into by hand.** The fields are the connection
+sheet's, moved, and they open holding the saved settings; what has not been seen is a
+keystroke reaching them, because the automation used here cannot type into the app.
+
+**A real namchain daemon has been driven.** The encoder, the framing and the protocol
+types are asserted against the published contract as well, and the handshake, the
+apply and `audible_generation` have all been watched against `namchaind` on macOS. See
+[docs/ENGINE.md](docs/ENGINE.md#verified-and-not) for what that did and did not prove.
+What has still never run is the board, an audio interface, and iOS.

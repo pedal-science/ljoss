@@ -7,6 +7,9 @@ struct RigDesignerApp: App {
     /// inside a `Rig`. Writing a generation or a health into the document would
     /// mark every rig modified and thrash the library's autosave.
     @State private var engine = EngineSession()
+    /// The user's own models and impulse responses, beside the rigs rather than in them:
+    /// a rig names a model by the *device's* id, and nothing here is sent anywhere yet.
+    @State private var assets = AssetLibrary()
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -14,6 +17,7 @@ struct RigDesignerApp: App {
             ContentView()
                 .environment(library)
                 .environment(engine)
+                .environment(assets)
                 .task {
                     // A device that was set up before is reconnected on launch;
                     // one that was not leaves the app exactly as it is today.

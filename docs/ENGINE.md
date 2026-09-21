@@ -21,6 +21,13 @@ and the operational references are its `docs/daemon.md`, `docs/schema.md`,
 | Models and impulse responses | **engine**, listed by `engine.assets` |
 | Presentation — subtitle, SF Symbol, source suitability | **app**, keyed by type id |
 
+The app also keeps its **own** list of the user's model and IR files, under Settings →
+Models & IRs. It is a listing for the user's benefit and nothing more: no rig names
+anything from it, no document carries one, and there is no way to put a file on the
+device — the device's library is the operator's, and a rig still names an id from
+`engine.assets`. That is a deliberate boundary rather than a gap; see
+[ASSETS.md](ASSETS.md).
+
 ### Why the app flattens but the engine lowers
 
 The engine will not accept this app's tree, and that is deliberate on both sides.
@@ -195,16 +202,19 @@ know keeps working across a protocol change.
 
 ## Verified, and not
 
-`./Tests/run-model-tests.sh` — 159 assertions, of which the engine's share covers the
+`./Tests/run-model-tests.sh` — 217 assertions, of which the engine's share covers the
 split/mix shape and the dry lane, chain-to-channel binding, a hidden chain still
 being sent, bypass on every node of a block, the effective-value fallback through the
 catalogue, each class of refusal, the framing under fragmentation and coalescing, and
 that every request type actually puts its method on the wire. That last one is there
 because it did not: `method` began life as a computed property, and synthesised
-`Encodable` writes only stored ones.
+`Encodable` writes only stored ones. The assets' share — the sniff, the brand table, the
+scan and the ordering — is the newest; [ASSETS.md](ASSETS.md) says what each of them
+exists to catch.
 
-Both platforms build, and the macOS app has been run and driven by hand — the status
-control, its refusal list, the settings sheet, and the inspector.
+Both platforms build, and the macOS app has been run and driven by hand — the device
+control, its refusal list, the inspector, and the settings view the device controls and
+the connection sheet moved into ([ARCHITECTURE.md](ARCHITECTURE.md#verified-and-not)).
 
 **This has now talked to a real daemon.** `namchaind` builds on macOS as of namchain's
 `macos-host` branch, so the whole path runs on one laptop: a WAV looped in as a virtual

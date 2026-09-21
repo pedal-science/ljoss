@@ -12,9 +12,10 @@ reaches a namchain device.
 
 ```
 App/          Scene, and the split-view / stack shell
-Views/        Canvas, node tiles, palette tray, inspector, library, design tokens
+Views/        Canvas, node tiles, palette tray, inspector, library, settings, design tokens
 DragEngine/   Drag state, frame registry, hit testing, slot mapping, the gesture
 Engine/       The namchain client: block mapping, the encoder, framing, the session
+Assets/       The local model and IR library: folders, scanning, sniffing, ordering
 Model/        The rig tree, addressing, and the edit algorithms
 Store/        Persistence and starter content
 Catalogue/    The 102 effect blocks and their parameters
@@ -28,6 +29,12 @@ expensive, so it has to be cheap to assert.
 
 `Engine/` sits above `Model/` and `Catalogue/` and below `Views/`. It reads a rig
 and never writes one — see [ENGINE.md](ENGINE.md).
+
+`Assets/` is the odd one: it uses `AssetKind` from `Engine/BlockMapping.swift`, because
+a model and an impulse response are one idea and two enums for it would drift. The five
+files that do the work — the entries, the sniff, the make table, the scan and the
+ordering — are SwiftUI-free and in the fast test set; `AssetLibrary.swift` is the
+observable store above them, beside `RigLibrary`. See [ASSETS.md](ASSETS.md).
 
 ## The routing model
 
@@ -212,18 +219,66 @@ fills and full strength for icons and strokes. One value works in both
 appearances, so there is no dynamic colour provider and no asset catalogue to
 keep in sync.
 
+## Settings is a mode, not a sheet
+
+The gear button at the top right swaps the window's two columns: the rig library's
+place is taken by the list of settings areas, and the rig editor's pane by the area
+that is selected. It is one window doing two jobs rather than a second scene,
+because the alternative — a Settings *scene* on macOS and a modal sheet on iOS —
+is two implementations and two ways for the app to be in two states at once.
+
+Three consequences worth stating, because each was a choice:
+
+- **`ContentView` owns the mode, `Views/SettingsShell.swift` owns the contents.**
+  The areas are an enum with a title, a symbol and a subtitle, and the first case is
+  what settings opens on. The button that opens them is attached to the content
+  *inside* each navigation container rather than to the shell: a toolbar item is
+  collected from the content up, and a modifier on a view that merely *contains* the
+  stack writes a preference nobody reads.
+- **The rig `selection` is untouched across the swap.** The editor is keyed on the rig
+  id, so returning rebuilds it the way switching rigs already rebuilds it, and
+  `RigEditor.rig.didSet` writes every edit through `RigLibrary` immediately, so
+  nothing is lost with the view.
+- **Entering settings forces the sidebar visible and leaving restores it.** The areas
+  list *is* the sidebar in that mode, so a collapsed one would leave the user in a page
+  with no way out.
+
+The device control is the same story in miniature. It used to open a popover holding
+the connection, the refusals, the issues, the audio details and a "Settings…" button
+that opened a sheet; now the button is a shortcut to Settings → Hardware and the popover
+is gone, so every one of those lives in one place. The health dot stays on the button,
+because the whole point of the dot is that it can be read without opening anything.
+`wrap` and the layout menu stay in the editor's toolbar, where the rig they affect is.
+
+### The scan indicator
+
+Settings → Models & IRs disables the results list while a scan is running and dims it —
+the list can change under the pointer the moment the scan publishes, and the rows being
+read-only today means the dimming is what the user sees, with the disabled state there
+for any control a row gains later. Above it is a status row that is **always present at a
+fixed height**, with only its contents fading: a row that came and went would move the
+list exactly when the user is reading it. The rest of the page (the folders, the grouping
+choices) stays live: those are what starts the next scan, and changing one mid-scan
+supersedes it. How the library itself works is in [ASSETS.md](ASSETS.md).
+
 ## Platform differences
 
 | | macOS | iOS |
 | --- | --- | --- |
 | Start a drag | 8pt of pointer movement | 0.18 s long press |
 | Shell | `NavigationSplitView` | Split view on iPad, `NavigationStack` on iPhone |
+| Settings | Areas column, selected area in the detail pane | Areas are the stack's root, a row pushes its page |
 | Haptics | `sensoryFeedback` is a no-op | Selection tick as the gap moves |
 
 The drag activation split is not cosmetic. On iOS a finger pan *is* how you
 scroll, so a drag must be gated behind a hold or the scroll view wins every
 touch. On macOS scrolling is a trackpad gesture that competes with nothing, so
 requiring a hold before a mouse drag would feel broken.
+
+Settings follows the same shape: on an iPhone there is no column to replace — which is
+what "the sidebar becomes the list of settings areas" asks for — so the list is the
+stack's root and a row pushes its page, while the gear button sits on that root screen
+rather than on every page it leads to.
 
 `sensoryFeedback` works on both platforms and needs no UIKit import, so there is
 no conditional compilation for haptics.
@@ -239,10 +294,17 @@ regression is silent rather than a crash:
 ./Tests/run-model-tests.sh
 ```
 
-It compiles `Model/`, `Catalogue/`, the slot mapping, the flow geometry and the
-SwiftUI-free half of `Engine/` with `swiftc` and runs the assertions. No test host,
-no scheme, about five seconds. None of those sources depend on SwiftUI, so this
-needs nothing from Xcode beyond a toolchain.
+It compiles `Model/`, `Catalogue/`, the slot mapping, the flow geometry, the
+SwiftUI-free half of `Engine/` and the SwiftUI-free half of `Assets/` with `swiftc` and
+runs the assertions. No test host, no scheme, about five seconds. None of those sources
+depend on SwiftUI, so this needs nothing from Xcode beyond a toolchain.
+
+The asset assertions are the newest and the most load-bearing of the cheap ones. A scan
+that re-reads the whole library every time still works, and an ordering that reshuffles
+between two draws of the same data still looks sorted, so `Tests/AssetTests.swift`
+asserts the parse count of a repeated scan, that a file that changed is the only one read
+again, that a file that is gone is pruned, that the day a file was first seen survives
+all of it, and that every grouping and sort combination lands in one order.
 
 It is not a substitute for a build, though. Swift's region-based isolation
 diagnostics run in a later pass than `swiftc -typecheck`, so a file can typecheck
@@ -276,3 +338,18 @@ controls had until then only been driven against no device, which is the honest
 offline case and the one that shows the refusal list. What has still never run is
 the board, an audio interface, and iOS. See
 [ENGINE.md](ENGINE.md#verified-and-not).
+
+Also exercised, in the running macOS app: **the settings view**. The gear swaps the
+library column for the two areas and opens on Hardware; the Device control opens the same
+page; the gear swaps back with the rig editor and its rig intact. Settings → Models & IRs
+was driven against two folders of real captures — 83 entries — and showed the folders,
+the four choices, the indicator going "Scanning folders…" → "Scan finished — 4 files ·
+nothing changed" → gone five seconds later, brands read out of metadata (`Darkglass`) and
+guessed from filenames (`ORNG-…` → Orange), 56 models before 27 impulse responses, and
+`Unknown` last.
+
+Two things could not be driven, and are worth saying rather than implying: this
+environment's synthetic clicks do not select rows in a SwiftUI `List` (they do not in the
+rig library either) and its keystrokes do not reach the app, so **the areas list being
+clicked, and the Hardware form being typed into and saved, are the parts a person still
+has to try.**
