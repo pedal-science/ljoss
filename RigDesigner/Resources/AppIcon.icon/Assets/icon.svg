@@ -18,6 +18,9 @@
     </g>
   </defs>
   <rect x="64" y="512" width="894" height="64" rx="32" fill="#111111"/>
-  <use href="#pedal" transform="translate(96, 352)" x="110" fill="url(#orange)"/>
+  <!-- One transform, not a transform and an `x`: on Apple's own renderer an `x` on a
+       <use> that already has one wins, which put this pedal in the corner instead of
+       where the file intends it. 206 = 96 + the 110 that was written as `x`. -->
+  <use href="#pedal" transform="translate(206, 352)" fill="url(#orange)"/>
   <use href="#pedal" transform="translate(576, 352)" fill="url(#blue)"/>
 </svg>
