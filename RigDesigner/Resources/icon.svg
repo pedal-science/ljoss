@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<svg width="1024" height="1024" xmlns="http://www.w3.org/2000/svg" xmlns:svg="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="orange" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E08050"/>
+      <stop offset="1" stop-color="#D07040"/>
+    </linearGradient>
+    <linearGradient id="blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#80B0D0"/>
+      <stop offset="1" stop-color="#70A0C0"/>
+    </linearGradient>
+    <g id="pedal">
+      <rect width="256" height="384" rx="48"/>
+      <circle cx="128" cy="316" r="30" fill="#eee"/>
+      <circle cx="56" cy="96" r="30" fill="#333"/>
+      <circle cx="128" cy="96" r="30" fill="#333"/>
+      <circle cx="200" cy="96" r="30" fill="#333"/>
+    </g>
+  </defs>
+  <rect x="64" y="512" width="894" height="64" rx="32" fill="#111111"/>
+  <use href="#pedal" transform="translate(96, 352)" x="110" fill="url(#orange)"/>
+  <use href="#pedal" transform="translate(576, 352)" fill="url(#blue)"/>
+</svg>

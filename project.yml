@@ -16,12 +16,6 @@ targets:
     supportedDestinations: [iOS, macOS]
     sources:
       - path: RigDesigner
-        excludes:
-          # Two icon files whose names flatten to the same path in the bundle, which is a
-          # build failure ("multiple commands produce …/icon.svg") rather than a warning.
-          # The one in `Resources/` is the target's; this is the stray copy beside the
-          # sources. The app icon itself comes from the asset catalogue.
-          - "icon.svg"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.example.rigdesigner
