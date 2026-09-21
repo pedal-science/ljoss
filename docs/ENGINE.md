@@ -239,10 +239,22 @@ established, in order:
   audible at generation 1 with no xruns, and over the same ten seconds of the input the
   amp left RMS where it was (-0.8 dB) while taking 6.6 dB off the peak. Only saturation
   moves those two apart; a model loaded and bypassed would not.
+- **A parallel section splits and mixes exactly.** `split2`, `split3` and `splitnull` are
+  one Y split with a unity Gain in the first lane and the rest dry, so the output is a
+  prediction rather than a tolerance: `lanes × input`, and zero when the last lane's
+  polarity is inverted. All three hold to the sample through `namchain-render`. Through
+  the daemon the result is `clamp(lanes × input, ±1)` to the sample, since a device output
+  saturates at full scale and a float file does not. Over TCP, `split2` followed by
+  `splitnull` in one session goes from exactly 2 × input to exact zeros through a 5.0 ms
+  fade, which is `--fade-ms`.
 
-Still open: `nc.split`'s `outputs` is declared `ParamKind::Flag` with a default of 2 and
-we send a JSON number. One chain with no parallel section never reaches it, so the runs
-above say nothing about it — drop a parallel in and watch.
+  Three lanes is the case that matters. `nc.split` declares `outputs` as
+  `ParamKind::Flag` with a default of 2 and we send a JSON number, which was the open
+  question here; a two-lane split would pass whether or not the parameter is read. The
+  engine validates a Flag as a number against its min, max and step, so `outputs: 3` is
+  accepted and a third port exists. The declared kind is still wrong — `engine.schema`
+  publishes a lane count as `"flag"`, a boolean — but that is namchain's label to fix,
+  and nothing on this side reads it.
 
 And nothing here has been near the board, an audio interface, or iOS. The local-network
 permission prompt still has never appeared, because macOS does not ask for one.

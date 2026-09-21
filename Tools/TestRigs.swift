@@ -40,11 +40,32 @@ enum TestRigs {
         return rig
     }
 
+    /// One chain holding one Y-split parallel section: a unity Gain in the first lane, the rest
+    /// empty. An empty lane is the dry path, so every lane carries the input unchanged and the
+    /// mixer's output is exactly `lanes × input` — a prediction, not a tolerance.
+    ///
+    /// Three lanes is the case that measures `nc.split`'s `outputs`: its default is 2, so a two-lane
+    /// split passes whether or not the parameter is read at all.
+    static func split(lanes: Int, invertingLast: Bool = false) -> Rig {
+        var rig = RigFactory.emptyRig(name: "Split \(lanes)", layout: .single)
+        var gain = Lane()
+        gain.elements = [.block(Block(componentID: "util.gain"))]
+        var all = [gain] + (1..<lanes).map { _ in Lane() }
+        if invertingLast { all[all.count - 1].invertPhase = true }
+        rig.chains[0].elements = [.parallel(ParallelSection(lanes: all))]
+        return rig
+    }
+
     static let byName: [String: @Sendable () -> Rig] = [
         "empty": empty,
         "gain0": { gain(decibels: nil) },
         "gain6": { gain(decibels: 6.0) },
         "amp": { amp() },
+        "split2": { split(lanes: 2) },
+        "split3": { split(lanes: 3) },
+        // x + (−x): the lanes cancel to the sample, so the split, the mixer and the lane's
+        // polarity node together make a null test.
+        "splitnull": { split(lanes: 2, invertingLast: true) },
     ]
 
     static let names = byName.keys.sorted().joined(separator: "|")
