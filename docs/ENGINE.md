@@ -216,8 +216,8 @@ Both platforms build, and the macOS app has been run and driven by hand — the 
 control, its refusal list, the inspector, and the settings view the device controls and
 the connection sheet moved into ([ARCHITECTURE.md](ARCHITECTURE.md#verified-and-not)).
 
-**This has now talked to a real daemon.** `namchaind` builds on macOS as of namchain's
-`macos-host` branch, so the whole path runs on one laptop: a WAV looped in as a virtual
+**This has now talked to a real daemon.** `namchaind` builds on macOS on namchain's `main`
+(it arrived on the `macos-host` branch), so the whole path runs on one laptop: a WAV looped in as a virtual
 input, the output streamed to a pipe, and this app driving it over TCP. What that
 established, in order:
 
@@ -232,6 +232,13 @@ established, in order:
   `audible_generation` catches up — which is the only thing that says a rig is being
   heard rather than acknowledged. `Tools/check-device.sh` is that check, and it needs a
   daemon, so it is a tool rather than a test.
+- **A NAM model runs.** `Tools/check-device.sh … amp` applies one Brit 800, which lowers
+  to `nc.nam` plus `fx.amp.tonestack`, with its model named by library **id** (`A2`) —
+  never a path, since the engine refuses an absolute path from a network client
+  (`path_refused`). `engine.assets` listed the models under `--models-root`, the rig went
+  audible at generation 1 with no xruns, and over the same ten seconds of the input the
+  amp left RMS where it was (-0.8 dB) while taking 6.6 dB off the peak. Only saturation
+  moves those two apart; a model loaded and bypassed would not.
 
 Still open: `nc.split`'s `outputs` is declared `ParamKind::Flag` with a default of 2 and
 we send a JSON number. One chain with no parallel section never reaches it, so the runs

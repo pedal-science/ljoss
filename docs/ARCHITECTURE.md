@@ -330,10 +330,11 @@ Not yet exercised: **the iOS touch path**. It compiles and the shell adapts,
 but the long-press-to-lift gesture has never run on a device or simulator.
 That is the first thing to test on hardware.
 
-Now exercised: **a real namchain daemon**. `namchaind` builds on macOS as of
-namchain's `macos-host` branch, so the engine layer has completed a handshake,
-applied a document, and watched `audible_generation` catch up — and an empty chain
-and a unity gain have both been shown transparent to the sample. The device
+Now exercised: **a real namchain daemon**. `namchaind` builds on macOS on
+namchain's `main`, so the engine layer has completed a handshake, applied a
+document, and watched `audible_generation` catch up — an empty chain and a unity
+gain have both been shown transparent to the sample, and an amp block has run a
+NAM model named by library id. The device
 controls had until then only been driven against no device, which is the honest
 offline case and the one that shows the refusal list. What has still never run is
 the board, an audio interface, and iOS. See
