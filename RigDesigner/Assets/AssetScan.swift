@@ -61,25 +61,82 @@ struct AssetScanOutcome: Sendable {
     var issues: [AssetRootIssue] = []
 }
 
-/// Walking the folders, and reconciling what is there against what was there.
+/// How far the reading pass has got.
 ///
-/// Synchronous on purpose: it runs inside one detached task, where security-scoped
-/// access can be started and stopped around each folder without an await in between.
+/// `total` is what the listing pass counted as needing to be opened, so it is known
+/// before the first file is read: a scan that finds ten files and has to read four of
+/// them reports `0/4`, then `1/4`, and so on.
+struct AssetScanProgress: Equatable, Sendable {
+    var read: Int
+    var total: Int
+}
+
+/// One file the listing pass decided has to be opened — new, or changed since last time.
+struct ScanCandidate: Hashable, Sendable {
+    var rootID: UUID
+    var relative: String
+    var url: URL
+    var size: Int
+    var modified: Date
+    var addedAt: Date
+    /// New since the previous listing, as opposed to an existing file that changed.
+    var isNew: Bool
+
+    var id: String { "\(rootID.uuidString)/\(relative)" }
+}
+
+/// What walking the folders found, before any file has been opened.
+struct ScanListing: Sendable {
+    /// Files that must be opened: new, or changed since the previous listing.
+    var candidates: [ScanCandidate] = []
+    /// Entries the previous listing already described, carried over unread.
+    var carried: [AssetEntry] = []
+    var issues: [AssetRootIssue] = []
+    /// Entries whose file is no longer in any folder.
+    var removed = 0
+    /// Symlinks, non-regular files, and anything the filesystem refused.
+    var skipped = 0
+
+    /// How many files have to be opened. This is the progress bar's maximum.
+    var toRead: Int { candidates.count }
+    var added: Int { candidates.filter(\.isNew).count }
+    var updated: Int { candidates.count - added }
+}
+
+/// Walking the folders, and reading the files that have to be opened.
+///
+/// Two passes, on purpose. The first is a directory walk that reads only metadata, and
+/// it is what answers "how many files need opening" — the number a progress bar needs
+/// before the first byte is read. The second opens exactly those files, several at a
+/// time, and reports each one as it lands.
 enum AssetScan {
 
     /// The extensions a folder is read for. A `.wav` is an impulse response; a `.nam`
     /// can be either, so its own architecture decides (`NAMSniff`).
     private static let extensions: Set<String> = ["nam", "wav"]
 
-    /// Reconcile the folders with the previous listing.
+    /// How many files are opened at once.
     ///
-    /// - Parameters:
-    ///   - previous: what the last pass saw. A file that matches it — same size, same
-    ///     modification date — is carried over unread, which is what makes a second
-    ///     scan of an unchanged library cost nothing.
-    ///   - now: what a newly found file's `addedAt` becomes.
-    static func run(roots: [ScanRoot], previous: [AssetEntry], now: Date) -> AssetScanOutcome {
-        var outcome = AssetScanOutcome()
+    /// Reading a header is a little I/O and a little JSON, so the machine's own width is
+    /// the useful number: at least two, so a one-core machine still overlaps a read with
+    /// the next open, and at most eight, past which the extra concurrent opens buy file
+    /// descriptors rather than throughput.
+    static var parallelism: Int {
+        min(max(ProcessInfo.processInfo.activeProcessorCount, 2), 8)
+    }
+
+    // MARK: - Pass one: the folders
+
+    /// Walk the folders and work out what has to be opened, without opening anything.
+    static func listing(roots: [ScanRoot], previous: [AssetEntry], now: Date) -> ScanListing {
+        let scopes = startAccess(roots)
+        defer { stopAccess(scopes) }
+        return walk(roots: roots, previous: previous, now: now)
+    }
+
+    /// The walk itself, for a caller that already holds the folders' security scopes.
+    private static func walk(roots: [ScanRoot], previous: [AssetEntry], now: Date) -> ScanListing {
+        var listing = ScanListing()
         var previousByID: [String: AssetEntry] = [:]
         for entry in previous { previousByID[entry.id] = entry }
 
@@ -88,17 +145,14 @@ enum AssetScan {
         var refused = 0
 
         for root in roots {
-            let accessed = root.url.startAccessingSecurityScopedResource()
-            defer { if accessed { root.url.stopAccessingSecurityScopedResource() } }
-
             let rootPath = path(of: root.url)
             var isDirectory: ObjCBool = false
             guard FileManager.default.fileExists(atPath: rootPath, isDirectory: &isDirectory) else {
-                outcome.issues.append(AssetRootIssue(rootID: root.id, message: "Folder not found"))
+                listing.issues.append(AssetRootIssue(rootID: root.id, message: "Folder not found"))
                 continue
             }
             guard isDirectory.boolValue else {
-                outcome.issues.append(AssetRootIssue(rootID: root.id, message: "This is a file, not a folder"))
+                listing.issues.append(AssetRootIssue(rootID: root.id, message: "This is a file, not a folder"))
                 continue
             }
             guard let enumerator = FileManager.default.enumerator(
@@ -113,7 +167,7 @@ enum AssetScan {
                     return true
                 }
             ) else {
-                outcome.issues.append(AssetRootIssue(rootID: root.id, message: "Folder could not be read"))
+                listing.issues.append(AssetRootIssue(rootID: root.id, message: "Folder could not be read"))
                 continue
             }
 
@@ -141,26 +195,142 @@ enum AssetScan {
                 let id = "\(root.id.uuidString)/\(relative)"
                 foundIDs.insert(id)
 
+                // Size and modification date are the whole cache key: a file that matches
+                // is carried over unread, which is what makes a second scan of an
+                // unchanged library have nothing at all to open.
                 if let cached = previousByID[id], cached.size == size, cached.modified == modified {
-                    outcome.entries.append(cached)
+                    listing.carried.append(cached)
                     continue
                 }
 
-                outcome.entries.append(describe(url: file, relative: relative, rootID: root.id,
-                                                size: size, modified: modified,
-                                                addedAt: previousByID[id]?.addedAt ?? now))
-                outcome.stats.parsed += 1
-                if previousByID[id] == nil { outcome.stats.added += 1 } else { outcome.stats.updated += 1 }
+                listing.candidates.append(ScanCandidate(
+                    rootID: root.id, relative: relative, url: file,
+                    size: size, modified: modified,
+                    addedAt: previousByID[id]?.addedAt ?? now,
+                    isNew: previousByID[id] == nil
+                ))
             }
         }
 
+        // The order the files have to be read in should not be the order the filesystem
+        // happened to hand them over in.
+        listing.candidates.sort { $0.id < $1.id }
+        listing.removed = previous.filter { !foundIDs.contains($0.id) }.count
+        listing.skipped = refused
+        return listing
+    }
+
+    // MARK: - Pass two: the files
+
+    /// Read one file's own description. Pure, so it can run on any thread.
+    static func read(_ candidate: ScanCandidate) -> AssetEntry {
+        describe(url: candidate.url, relative: candidate.relative, rootID: candidate.rootID,
+                 size: candidate.size, modified: candidate.modified, addedAt: candidate.addedAt)
+    }
+
+    /// Put a listing and the entries read from it back together.
+    static func outcome(listing: ScanListing, read: [AssetEntry]) -> AssetScanOutcome {
+        var outcome = AssetScanOutcome()
+        outcome.entries = listing.carried + read
         outcome.entries.sort { $0.id < $1.id }
+        outcome.issues = listing.issues
         outcome.stats.files = outcome.entries.count
         outcome.stats.models = outcome.entries.filter(\.isModel).count
-        outcome.stats.irs = outcome.entries.filter { !$0.isModel }.count
-        outcome.stats.removed = previous.filter { !foundIDs.contains($0.id) }.count
-        outcome.stats.skipped = refused
+        outcome.stats.irs = outcome.entries.count - outcome.stats.models
+        outcome.stats.added = listing.added
+        outcome.stats.updated = listing.updated
+        outcome.stats.removed = listing.removed
+        outcome.stats.parsed = read.count
+        outcome.stats.skipped = listing.skipped
         return outcome
+    }
+
+    // MARK: - Both passes
+
+    /// List the folders, then read what has to be read, one file at a time.
+    ///
+    /// The whole scan on a single thread. The parallel form below gives the same answer;
+    /// this is the one the assertions use, where determinism is worth more than speed.
+    static func run(roots: [ScanRoot], previous: [AssetEntry], now: Date) -> AssetScanOutcome {
+        let scopes = startAccess(roots)
+        defer { stopAccess(scopes) }
+        let listing = walk(roots: roots, previous: previous, now: now)
+        return outcome(listing: listing, read: listing.candidates.map { read($0) })
+    }
+
+    /// List the folders, then read what has to be read several files at once, reporting
+    /// progress as each one lands.
+    ///
+    /// Separate from `run` rather than an overload of it: a three-argument call would
+    /// resolve to this one from inside an async context, so the two are named apart to
+    /// keep the single-threaded form reachable.
+    ///
+    /// - Parameters:
+    ///   - parallelism: how many files may be open at once. Defaults to what the machine
+    ///     can usefully do.
+    ///   - onProgress: called once with `0/total` as soon as the listing has said how
+    ///     many files have to be opened, then once per file read.
+    static func runConcurrently(roots: [ScanRoot],
+                                previous: [AssetEntry],
+                                now: Date,
+                                parallelism: Int = AssetScan.parallelism,
+                                onProgress: @Sendable (AssetScanProgress) async -> Void = { _ in }) async -> AssetScanOutcome {
+        let scopes = startAccess(roots)
+        defer { stopAccess(scopes) }
+
+        // Pass one opens nothing, so it is cheap next to what follows — and it is what
+        // turns "some files" into "this many have to be read".
+        let listing = walk(roots: roots, previous: previous, now: now)
+        let total = listing.toRead
+        await onProgress(AssetScanProgress(read: 0, total: total))
+        guard total > 0 else { return outcome(listing: listing, read: []) }
+
+        let candidates = listing.candidates
+        let width = min(max(parallelism, 1), total)
+        var read = [AssetEntry?](repeating: nil, count: total)
+        var done = 0
+
+        // A sliding window rather than one task per file: at most `width` files are open
+        // at any moment, and a new one starts as each finishes.
+        await withTaskGroup(of: (Int, AssetEntry).self) { group in
+            var next = 0
+            while next < width {
+                let index = next
+                group.addTask { (index, AssetScan.read(candidates[index])) }
+                next += 1
+            }
+            while let (index, entry) = await group.next() {
+                read[index] = entry
+                done += 1
+                await onProgress(AssetScanProgress(read: done, total: total))
+                if next < total {
+                    let index = next
+                    group.addTask { (index, AssetScan.read(candidates[index])) }
+                    next += 1
+                }
+            }
+        }
+
+        return outcome(listing: listing, read: read.compactMap { $0 })
+    }
+
+    // MARK: - Folder access
+
+    /// Open the security scope of every folder, and return the ones that have to be
+    /// closed again.
+    ///
+    /// Held across both passes rather than around each file: on iOS a file is only
+    /// readable while its folder's scope is open, and pass two reads on many threads.
+    private static func startAccess(_ roots: [ScanRoot]) -> [URL] {
+        var started: [URL] = []
+        for root in roots where root.url.startAccessingSecurityScopedResource() {
+            started.append(root.url)
+        }
+        return started
+    }
+
+    private static func stopAccess(_ urls: [URL]) {
+        for url in urls { url.stopAccessingSecurityScopedResource() }
     }
 
     // MARK: - One file
@@ -187,6 +357,7 @@ enum AssetScan {
                           name: info.name ?? stem,
                           make: MakeHeuristics.make(claimed: info.make, fileStem: stem, directories: directories),
                           model: info.model, architecture: info.architecture,
+                          gearType: info.gearType,
                           sampleRate: info.sampleRate, channels: nil, frames: nil,
                           size: size, modified: modified, addedAt: addedAt)
     }

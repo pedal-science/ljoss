@@ -35,33 +35,26 @@ struct ModelsAndIRsSettingsView: View {
             if let error = assets.lastError { complaintRow(error) }
 
             Section {
-                Picker("Group by", selection: $groupBy) {
-                    ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                HStack {
+                    Picker("Group by", selection: $groupBy) {
+                        ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                    Picker("Then by", selection: $groupThenBy) {
+                        ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }.labelsHidden()
+                    Spacer()
+                    Picker("Sort by", selection: $sortBy) {
+                        ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                    Picker("Then by", selection: $sortThenBy) {
+                        ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }.labelsHidden()
                 }
-                Picker("Then by", selection: $groupThenBy) {
-                    ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
-                }
-            } header: {
-                Text("Group")
-            } footer: {
-                Text("A second level equal to the first adds nothing, and None is one list.")
             }
 
             Section {
-                Picker("Sort by", selection: $sortBy) {
-                    ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
-                }
-                Picker("Then by", selection: $sortThenBy) {
-                    ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
-                }
-            } header: {
-                Text("Sort")
-            } footer: {
-                Text("Names read A–Z and dates read newest first. Unknown is always last.")
-            }
-
-            Section {
-                ScanStatusRow(state: assets.state, unavailableFolders: assets.issues.count)
+                ScanStatusRow(state: assets.state, progress: assets.progress,
+                              unavailableFolders: assets.issues.count)
             }
 
             results
@@ -201,7 +194,7 @@ struct ModelsAndIRsSettingsView: View {
                 }
             }
         } else {
-            Group {
+            List {
                 ForEach(sections) { section in
                     if let title = section.title {
                         Section(title) { rows(section) }
@@ -235,6 +228,9 @@ struct ModelsAndIRsSettingsView: View {
 /// under the pointer, so the row is always here and only its contents come and go.
 struct ScanStatusRow: View {
     var state: AssetLibrary.ScanState
+    /// How far the reading pass has got. `nil` until the listing pass has said how many
+    /// files there are to open, which is when a determinate bar becomes possible.
+    var progress: AssetScanProgress?
     /// Folders that could not be read, which is worth saying next to the count.
     var unavailableFolders: Int = 0
 
@@ -244,11 +240,25 @@ struct ScanStatusRow: View {
             case .idle:
                 EmptyView()
             case .scanning:
-                ProgressView()
-                    .controlSize(.small)
-                Text("Scanning folders…")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                if let progress, progress.total > 0 {
+                    // The listing pass has named the files; this is how many of them
+                    // have been read. The maximum does not move while it runs.
+                    ProgressView(value: Double(progress.read), total: Double(progress.total))
+                        .progressViewStyle(.linear)
+                        .frame(maxWidth: 200)
+                    Text("Reading \(progress.read) of \(progress.total)…")
+                        .font(.callout)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                } else {
+                    // Still walking the folders, so the number is not known and the bar
+                    // cannot be either.
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Scanning folders…")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             case .finished(let stats):
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green)
@@ -278,6 +288,11 @@ struct ScanStatusRow: View {
 
 struct AssetRow: View {
     var entry: AssetEntry
+    /// When set, the row carries a star control that saves the user's rating for this
+    /// model. Nil in the settings listing, which is about what is on disk rather than
+    /// what the user thinks of it; the finder passes a binding so a rating can be given
+    /// where the model is found.
+    var rating: Binding<Int?>? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -314,11 +329,23 @@ struct AssetRow: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                     .lineLimit(1)
+                if let rating {
+                    // Compact on purpose: the filter row's stars are the fingertip-sized
+                    // selector, and a list row has no width to spare for a second one.
+                    StarSelector(filled: rating.wrappedValue ?? 0, size: 12, hit: 30) { stars in
+                        // Tapping the star already filled clears the rating, so "not
+                        // rated" is reachable without a control of its own.
+                        rating.wrappedValue = rating.wrappedValue == stars ? nil : stars
+                    }
+                    .accessibilityLabel(Text("Your rating"))
+                }
             }
         }
         .frame(minHeight: Metrics.minTouchTarget)
         .help(help)
-        .accessibilityElement(children: .combine)
+        // A rating control is made of five buttons, so the row's children are combined
+        // into one element only when there is nothing to focus inside it.
+        .accessibilityElement(children: rating == nil ? .combine : .contain)
     }
 
     private var detail: String {

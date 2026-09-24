@@ -14,7 +14,8 @@ reaches a namchain device.
 App/          Scene, and the split-view / stack shell
 Views/        Canvas, node tiles, palette tray, inspector, library, settings, design tokens
 DragEngine/   Drag state, frame registry, hit testing, slot mapping, the gesture
-Engine/       The namchain client: block mapping, the encoder, framing, the session
+Engine/       The namchain client: block mapping, the encoder, framing, the session, and the
+              local engine this app can run itself
 Assets/       The local model and IR library: folders, scanning, sniffing, ordering
 Model/        The rig tree, addressing, and the edit algorithms
 Store/        Persistence and starter content
@@ -25,16 +26,20 @@ Dependencies point downward. `Model/` knows nothing about SwiftUI and compiles
 standalone — which is what lets `Tests/` exercise it with a plain `swiftc`
 invocation and no test host. `Catalogue/` and the lower half of `Engine/` hold the
 same line for the same reason: the encoder is where a silent mistake is most
-expensive, so it has to be cheap to assert.
+expensive, so it has to be cheap to assert. The local engine's decisions are split
+along it deliberately: `Engine/LocalEnginePlan.swift` resolves paths and builds the
+daemon's command line and is in the fast test set, while `Engine/LocalEngine.swift`
+does nothing but spawn a process. See [ENGINE.md](ENGINE.md#the-local-engine).
 
 `Engine/` sits above `Model/` and `Catalogue/` and below `Views/`. It reads a rig
 and never writes one — see [ENGINE.md](ENGINE.md).
 
 `Assets/` is the odd one: it uses `AssetKind` from `Engine/BlockMapping.swift`, because
-a model and an impulse response are one idea and two enums for it would drift. The five
-files that do the work — the entries, the sniff, the make table, the scan and the
-ordering — are SwiftUI-free and in the fast test set; `AssetLibrary.swift` is the
-observable store above them, beside `RigLibrary`. See [ASSETS.md](ASSETS.md).
+a model and an impulse response are one idea and two enums for it would drift. The files
+that do the work — the entries, the sniff, the make table, the scan, the ordering, the
+finder's search and user data, and which models a rig is using — are SwiftUI-free and in
+the fast test set; `AssetLibrary.swift` and `ModelUserDataStore.swift` are the observable
+stores above them, beside `RigLibrary`. See [ASSETS.md](ASSETS.md).
 
 ## The routing model
 
@@ -256,10 +261,28 @@ Settings → Models & IRs disables the results list while a scan is running and 
 the list can change under the pointer the moment the scan publishes, and the rows being
 read-only today means the dimming is what the user sees, with the disabled state there
 for any control a row gains later. Above it is a status row that is **always present at a
-fixed height**, with only its contents fading: a row that came and went would move the
+fixed height**, with only its contents fading — a spinner while the folders are walked,
+then a determinate bar counting the files the listing said had to be read, then the
+summary. A row that came and went would move the
 list exactly when the user is reading it. The rest of the page (the folders, the grouping
 choices) stays live: those are what starts the next scan, and changing one mid-scan
 supersedes it. How the library itself works is in [ASSETS.md](ASSETS.md).
+
+### Find Models is one view doing two jobs
+
+Settings → Find Models and the inspector's model picker are the same `ModelFinderView`. Hand
+it an `onPick` and its rows choose a model; leave it out and they do nothing. The picker is a
+push from the node's Model row rather than a second sheet, so choosing a model returns to the
+config the user was editing, and the two presentations cannot drift because there is only one
+of them.
+
+The search is not in the view. `ModelSearch` is a pure function of the entries, the query,
+the three filters and the user's data, which is what lets "`ampeg svt` finds `Ampeg ABC
+SVT123`" be an assertion rather than something to type into the app to check. The debounce is
+`.task(id:)` plus `Task.sleep`, with cancellation doing the work of a timer — the same shape
+`EngineSession` uses for `rig.apply`. What the user has said about a model is user data
+rather than library data, so it lives in the iCloud key-value store; the reasoning is in
+[ASSETS.md](ASSETS.md#what-the-user-has-said-about-a-model).
 
 ## Platform differences
 
@@ -306,6 +329,11 @@ asserts the parse count of a repeated scan, that a file that changed is the only
 again, that a file that is gone is pruned, that the day a file was first seen survives
 all of it, and that every grouping and sort combination lands in one order.
 
+`Tests/ModelFinderTests.swift` is the same kind of cheap assertion for the finder: that every
+query word must match as a whole word or part of one, that the three filters compose, that
+remembered words rank recency over uses and uses over the alphabet, and that a rating or a
+use is filed under a key that does not change when the app is re-installed.
+
 It is not a substitute for a build, though. Swift's region-based isolation
 diagnostics run in a later pass than `swiftc -typecheck`, so a file can typecheck
 cleanly and still fail `xcodebuild` with a data race — which is how
@@ -341,7 +369,7 @@ the board, an audio interface, and iOS. See
 [ENGINE.md](ENGINE.md#verified-and-not).
 
 Also exercised, in the running macOS app: **the settings view**. The gear swaps the
-library column for the two areas and opens on Hardware; the Device control opens the same
+library column for the settings areas and opens on Hardware; the Device control opens the same
 page; the gear swaps back with the rig editor and its rig intact. Settings → Models & IRs
 was driven against two folders of real captures — 83 entries — and showed the folders,
 the four choices, the indicator going "Scanning folders…" → "Scan finished — 4 files ·
@@ -354,3 +382,9 @@ environment's synthetic clicks do not select rows in a SwiftUI `List` (they do n
 rig library either) and its keystrokes do not reach the app, so **the areas list being
 clicked, and the Hardware form being typed into and saved, are the parts a person still
 has to try.**
+
+The finder has not been driven either. Its rules are asserted in
+`Tests/ModelFinderTests.swift` and the app builds for macOS and the iOS Simulator with it,
+but the same two limitations apply, so **the debounce, the one-line row of remembered words,
+the star controls, and the picker inside a node's config are the parts a person still has to
+try.**

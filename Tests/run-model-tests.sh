@@ -21,16 +21,23 @@ sources=(
   "$root"/RigDesigner/Engine/DocumentEncoder.swift
   "$root"/RigDesigner/Engine/EngineProtocol.swift
   "$root"/RigDesigner/Engine/EngineFraming.swift
+  "$root"/RigDesigner/Engine/EngineSettings.swift
+  "$root"/RigDesigner/Engine/LocalEnginePlan.swift
   "$root"/RigDesigner/Assets/AssetEntry.swift
   "$root"/RigDesigner/Assets/NAMSniff.swift
   "$root"/RigDesigner/Assets/MakeHeuristics.swift
   "$root"/RigDesigner/Assets/AssetScan.swift
   "$root"/RigDesigner/Assets/AssetOrder.swift
+  "$root"/RigDesigner/Assets/ModelUserData.swift
+  "$root"/RigDesigner/Assets/ModelSearch.swift
+  "$root"/RigDesigner/Assets/ModelUsage.swift
   "$root"/Tests/ModelTests.swift
   "$root"/Tests/FlowTests.swift
   "$root"/Tests/EncoderTests.swift
   "$root"/Tests/WireTests.swift
   "$root"/Tests/AssetTests.swift
+  "$root"/Tests/ModelFinderTests.swift
+  "$root"/Tests/LocalEngineTests.swift
   "$root"/Tests/main.swift
 )
 

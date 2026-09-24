@@ -155,6 +155,91 @@ autosave debounce.
 diagnostic and nothing is ever rehydrated from it. When the two disagree, the
 recovery is to re-send the whole document, which is a button.
 
+## The local engine
+
+Everything above assumes a device somewhere else. Settings → Hardware also offers
+the opposite: **Run namchaind on this Mac**, which starts a `namchaind` as a child of
+this app, with namchain's `coreaudio` backend — a WAV looped into the machine's output
+device, no interface, no guitar, no second machine. It is a development and audition
+aid, not a deployment: namchain's `docs/daemon.md` §"The CoreAudio backend" owns what
+the daemon promises, and this section owns only what the app does about it.
+
+The daemon is given `--backend coreaudio --capture-path <the chosen WAV>`, its own
+`models/`, `irs/` and `rigs/` under Application Support, and a loopback TCP listener
+with a token the app generates. The model folder is **the user's own**, when the
+library has one with a model in it: a palette full of amps the local engine cannot
+play is a worse first experience than no local engine. A folder that holds nothing is
+skipped rather than chosen, so an empty first root cannot shadow a full second one.
+
+**The input is a file, and it has a default.** The capture is a WAV looped in place of an
+instrument, chosen in Settings → Hardware → Input with a file picker restricted to `.wav`
+(because the daemon loops a WAV and refuses anything else by name, so offering an MP3 would
+be offering a file that cannot work). It also has a fallback: namchain ships a two-second
+mono 48 kHz guitar phrase for its own tests, and `LocalEnginePlan.defaultLoopFile` finds it
+by walking up from *the binary that will run* — so a checkout anywhere works, and an
+installed `namchaind` outside a checkout comes back empty rather than inventing a path. The
+result is that switching the engine on makes a sound without a file being hunted down
+first, which is the whole point of a local engine. The search runs again each time the
+engine starts, so a checkout that moves or appears is picked up rather than remembered as
+broken; the resolved path is written back so the field shows what is actually looping.
+There is no fixed list of "likely" checkout paths, deliberately: a path the app guessed is
+worse than one the user picked.
+
+Choosing a file **restarts the engine if it was running**, so the choice is audible without a
+second trip to the toggle; an engine that was off stays off. And the picker's own parameters are
+**constants**: `allowedContentTypes` is `Self.pickerTypes`, and which of the two paths is being
+filled comes from separate state. It was first written with the type list derived from the same
+optional that opening the picker set — so opening it changed the modifier's configuration,
+SwiftUI treated that as a different `.fileImporter`, and the sheet came back with its result
+dropped. The symptom was a file chosen in the dialog and then ignored, which reads as the dialog
+being broken rather than as the modifier being reconfigured mid-flight.
+
+Four decisions worth stating, because each has a tidier alternative that behaves worse:
+
+- **A child process, not a LaunchAgent.** launchd is the standard way to run a
+  per-user daemon and it is wrong here: it outlives the app, it needs an installer to
+  remove, and "so I can test without a real device" is not a thing that should outlive
+  the test. The child is stopped in `applicationWillTerminate`, which is the one hook
+  SwiftUI does not offer — `scenePhase` never reaches a terminated state.
+- **`LocalEngine` is a singleton**, because the constraints are physical: one daemon
+  per port, one audio device held, one child to reap. A second instance could only fail
+  to bind or fight the first, so it is unconstructable rather than discouraged.
+- **It is a mode, not a device.** Turning it on points the *session* at `127.0.0.1`
+  and does not touch `EngineSettingsStore`. A user with a board configured keeps that
+  configuration, and turning the local engine off leaves them pointed at it again.
+- **An adopted daemon is a success.** If the port already answers a real handshake,
+  the app uses that process instead of starting a second one. A leftover daemon from a
+  crash is otherwise a port conflict, which reads as the app being broken when the
+  thing the user wanted is already running. A listener that answers but is *not* a
+  namchaind shows up as the spawn failing, with the daemon's own last line in the
+  message — `address already in use` is the sentence that explains it.
+
+The child also gets the parent's environment **minus the `DYLD_*` variables**. That is
+not hygiene for its own sake: Xcode injects `DYLD_INSERT_LIBRARIES` into an app it
+launches, the child inherits it, and dyld kills the daemon before `main` because there
+is no `__preview.dylib` beside *its* executable — so the toggle would fail only while
+being tested from Xcode. `LocalEnginePlan.childEnvironment` is the fix and the test is
+the record of why.
+
+### The observation loop this exposed
+
+Worth writing down, because the fix is four words and the symptom is unrecognisable.
+
+`EngineSession`'s private `client`, `poller`, `debounce` and `latest` are `@ObservationIgnored`.
+They were not, and the `@Observable` macro tracks a property whether or not it is `private`.
+`debounce` is *assigned* on every `rigDidChange`, and `RigEditor.init` calls `rigDidChange` — so
+building the editor invalidated every view that reads the session, which rebuilt the editor, which
+called `rigDidChange` again. A self-sustaining loop: **3,400 editor constructions per second and
+100 % of a core**, found by `Self._printChanges()` printing `ContentView: \EngineSession.debounce
+changed.` forever.
+
+It appeared only **while the session was connected**, because that is when a debounce is scheduled at
+all — which is why a local engine surfaced it: a daemon on this machine, at this `127.0.0.1`, makes
+the session online in seconds and without a board. It was never specific to the local engine; anyone
+driving a real device from a built-from-source app would have met it too. The rule it is an instance
+of: an `@Observable` type's mutable plumbing belongs to nobody's view, and a write to it must not be
+able to invalidate a body that can reach back and write again.
+
 ## The transport
 
 TCP, default port 47810, off on the device unless an operator turns it on. Every
@@ -190,11 +275,16 @@ Engine/EngineFraming.swift     the length prefix
 Engine/EngineClient.swift      an actor over NWConnection
 Engine/EngineSettings.swift    host, port, and the token in the keychain
 Engine/EngineSession.swift     connection, debounced apply, status polling
+Engine/LocalEnginePlan.swift   the local engine's decisions: paths, refusals, argv
+Engine/LocalEngine.swift       the local engine's child process
 ```
 
-The first five have **no SwiftUI and no Network**, which is what puts them in
+The first six have **no SwiftUI and no Network**, which is what puts them in
 `run-model-tests.sh` alongside `Model/`. Adding either import to one of them breaks
-the fast test path, the same discipline `Model/` already keeps.
+the fast test path, the same discipline `Model/` already keeps. `LocalEnginePlan` is in
+that set on purpose and `LocalEngine` is not: the plan is where the mistakes are —
+a mistyped flag, a model root pointed at nothing, a token the daemon will refuse — and
+the process wrapper has nothing to assert without a real binary.
 
 Every response type is deliberately partial and every field optional: the daemon's
 own rule is that responses are supersets, so a client that ignores what it does not
@@ -202,7 +292,7 @@ know keeps working across a protocol change.
 
 ## Verified, and not
 
-`./Tests/run-model-tests.sh` — 217 assertions, of which the engine's share covers the
+`./Tests/run-model-tests.sh` — 329 assertions, of which the engine's share covers the
 split/mix shape and the dry lane, chain-to-channel binding, a hidden chain still
 being sent, bypass on every node of a block, the effective-value fallback through the
 catalogue, each class of refusal, the framing under fragmentation and coalescing, and
@@ -210,11 +300,22 @@ that every request type actually puts its method on the wire. That last one is t
 because it did not: `method` began life as a computed property, and synthesised
 `Encodable` writes only stored ones. The assets' share — the sniff, the brand table, the
 scan and the ordering — is the newest; [ASSETS.md](ASSETS.md) says what each of them
-exists to catch.
+exists to catch. The local engine's share is in the same set: the command line it hands
+the daemon, the four ways a loop file is refused, the token rules, and which of the
+user's folders becomes the daemon's model library.
 
 Both platforms build, and the macOS app has been run and driven by hand — the device
 control, its refusal list, the inspector, and the settings view the device controls and
 the connection sheet moved into ([ARCHITECTURE.md](ARCHITECTURE.md#verified-and-not)).
+
+**The local engine has been run end to end on a Mac.** Turning it on started a
+`namchaind` with `--backend coreaudio` and a looped WAV, `engine.status` reported
+`coreaudio`, `running`, the device's own 1024-frame period, two playback channels and
+zero xruns, and quitting the app stopped the child. What that does **not** cover:
+capturing from an input device (the app never asks for one), and a run where Xcode's
+`DYLD_INSERT_LIBRARIES` is genuinely present — the sanitising is asserted in
+`Tests/LocalEngineTests.swift`, but the Xcode-launched case was not reproducible from a
+shell, because the preview library is only loadable inside Xcode's own environment.
 
 **This has now talked to a real daemon.** `namchaind` builds on macOS on namchain's `main`
 (it arrived on the `macos-host` branch), so the whole path runs on one laptop: a WAV looped in as a virtual

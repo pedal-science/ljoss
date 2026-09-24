@@ -133,23 +133,69 @@ struct InspectorSheet: View {
         isInput ? IOMapping.inputOutOfBand[param] : IOMapping.outputOutOfBand[param]
     }
 
-    /// The model or impulse response this block needs, listed from the device's own
-    /// library. The value sent is the **id**; a path is refused outright from a
-    /// network client.
+    /// The model or impulse response this block needs.
+    ///
+    /// A model is picked from the user's own folders with the finder — the app knows
+    /// where those files are, and the value it writes is the library id a document
+    /// names one by, never a path. An impulse response still comes from the device's
+    /// own library, because that list is the device's to give.
     @ViewBuilder
     private func assetSection(for block: Block) -> some View {
-        let needed = BlockMappings.mapping(for: block.componentID)?.requiredAssets ?? []
-        if let session, session.connection.isOnline, !needed.isEmpty {
+        let needed = requiredAssets(for: block)
+        let showsDevicePicker = needed.contains(.ir) && (session?.connection.isOnline ?? false)
+        if needed.contains(.model) || showsDevicePicker {
             Section {
-                ForEach(needed, id: \.self) { kind in
-                    assetPicker(kind, for: block, library: session.assets.list(for: kind))
+                if needed.contains(.model) {
+                    modelRow(for: block)
+                }
+                if showsDevicePicker, let session {
+                    assetPicker(.ir, for: block, library: session.assets.list(for: .ir))
                 }
             } header: {
-                Text("Device")
+                Text(needed.contains(.model) ? "Model" : "Device")
             } footer: {
-                Text("Loaded from the device. A rig names these by id, so it means the same thing on any device that has them.")
+                Text(assetFooter(needed))
             }
         }
+    }
+
+    /// The kinds a block needs, in the mapping's order and without repeats.
+    private func requiredAssets(for block: Block) -> [AssetKind] {
+        var kinds: [AssetKind] = []
+        for kind in BlockMappings.mapping(for: block.componentID)?.requiredAssets ?? []
+        where !kinds.contains(kind) {
+            kinds.append(kind)
+        }
+        return kinds
+    }
+
+    private func assetFooter(_ needed: [AssetKind]) -> String {
+        if needed.contains(.model) {
+            return "A model is named by its library id — the path under its folder without the extension — so it means the same thing on any device that has it."
+        }
+        return "Loaded from the device. A rig names these by id, so it means the same thing on any device that has them."
+    }
+
+    /// The finder, as the picker for this node's model. It writes the same kind of
+    /// value the device's picker does: an id, never a path.
+    private func modelRow(for block: Block) -> some View {
+        let picked = block.values[AssetKind.model.valueKey]?.optionValue ?? ""
+        return NavigationLink {
+            ModelFinderView(selectedKey: picked.isEmpty ? nil : picked) { entry in
+                editor.rig.mutateBlock(id: block.id) {
+                    $0.values[AssetKind.model.valueKey] = .option(entry.libraryID)
+                }
+            }
+            .navigationTitle("Choose Model")
+        } label: {
+            LabeledContent("Model") {
+                Text(picked.isEmpty ? "Choose…" : picked)
+                    .foregroundStyle(picked.isEmpty ? .secondary : .primary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .frame(minHeight: Metrics.minTouchTarget)
     }
 
     @ViewBuilder

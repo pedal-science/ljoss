@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 // The device: where it is, the secret that gets in, what it is doing, and what it will
 // not play.
@@ -10,15 +11,41 @@ import SwiftUI
 
 struct HardwareSettingsView: View {
     @Environment(EngineSession.self) private var session
+    @Environment(LocalEngine.self) private var engine
+    @Environment(AssetLibrary.self) private var library
 
     @State private var host = ""
     @State private var port = String(EngineSettings.defaultPort)
     @State private var token = ""
     @State private var keychainComplaint: String?
+    @State private var local = LocalEngineStore.load()
+
+    /// The file picker, and which of the two paths it is filling in.
+    ///
+    /// Two pieces of state rather than one optional, because `fileImporter`'s own parameters must not
+    /// change while it is open: with `allowedContentTypes` derived from the optional, opening the
+    /// picker changed the modifier's configuration, SwiftUI treated it as a different importer, and
+    /// the sheet came back with its result dropped — a file chosen and then ignored, which is exactly
+    /// how it was reported. The type list is now constant and the *mode* is read from state.
+    @State private var pickingFile = false
+    @State private var pickMode: LocalPath = .loopFile
+
+    private enum LocalPath: Sendable {
+        case launcher
+        case loopFile
+    }
+
+    /// What the picker will offer. A constant, for the reason above. `.wav` for the input and not
+    /// `.audio`: the daemon loops a WAV and refuses anything else by name, so offering an MP3 would
+    /// be offering a file that cannot work.
+    private static let pickerTypes: [UTType] = [.wav, .executable]
 
     var body: some View {
         Form {
             connection
+            localEngine
+            inputFile
+            localEngineDevice
             address
             tokenSection
 
@@ -39,6 +66,23 @@ struct HardwareSettingsView: View {
         }
         .formStyle(.grouped)
         .onAppear(perform: load)
+        .fileImporter(isPresented: $pickingFile, allowedContentTypes: Self.pickerTypes) { result in
+            guard case .success(let url) = result else { return }
+            var updated = local
+            switch pickMode {
+            case .launcher: updated.launcherPath = url.path
+            case .loopFile: updated.loopFilePath = url.path
+            }
+            local = updated
+            LocalEngineStore.save(updated)
+            // A file chosen is a decision, and the engine should be running the thing the field now
+            // says. Restarting is what makes the choice audible without a second trip to the toggle;
+            // an engine that was off stays off.
+            if engine.state.isUp {
+                engine.stop()
+                Task { await engine.start(session: session, settings: updated, library: library) }
+            }
+        }
     }
 
     // MARK: - Connection
@@ -105,7 +149,187 @@ struct HardwareSettingsView: View {
         }
     }
 
-    // MARK: - Where it is
+    // MARK: - The engine this app can run itself
+
+    /// The local engine: a `namchaind` on this machine, looping a WAV into the Mac's output device.
+    ///
+    /// It is here rather than in a settings area of its own because it is an alternative *device*,
+    /// and this page is what the app knows about the device. Turning it on points the session at
+    /// `127.0.0.1` and **does not touch the address below**: a user with a board configured keeps it,
+    /// and turning the local engine off leaves them pointed at it again.
+    @ViewBuilder
+    private var localEngine: some View {
+        #if os(macOS)
+        localEngineForm
+        #else
+        Section {
+            Text("The local engine runs namchaind on this machine, which needs CoreAudio output "
+                 + "and a binary the app can start. Neither exists on iOS.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        } header: {
+            Text("Local Engine")
+        }
+        #endif
+    }
+
+    #if os(macOS)
+    private var localEngineForm: some View {
+        Section {
+            Toggle("Run namchaind on this Mac", isOn: localToggle)
+                .frame(minHeight: Metrics.minTouchTarget)
+            LocalEngineStatus(engine: engine)
+        } header: {
+            Text("Local Engine")
+        } footer: {
+            Text("Plays a rig through this Mac's output device with no interface attached. The "
+                 + "address below is left alone: the local engine is a mode, not a device you have "
+                 + "to undo.")
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .onChange(of: local) { _, updated in LocalEngineStore.save(updated) }
+    }
+
+    /// The device side of the local engine — which binary, which port, which output. Folded away
+    /// until the engine is asked for, because none of it is required to switch the engine on.
+    @ViewBuilder
+    private var localEngineDevice: some View {
+        if local.wantsLocal || engine.state.isUp {
+            Section {
+                pathRow("namchaind", text: $local.launcherPath,
+                        prompt: foundLauncher ?? "Build it, or choose the binary",
+                        pick: .launcher)
+
+                LabeledContent("Port") {
+                    TextField("Port", value: $local.tcpPort, format: .number.grouping(.never))
+                        .labelsHidden()
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Output device") {
+                    TextField("Output device", text: $local.deviceUID,
+                              prompt: Text("System default"))
+                        .labelsHidden()
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
+                LabeledContent("Period ceiling") {
+                    TextField("Period", value: $local.periodSize, format: .number.grouping(.never))
+                        .labelsHidden()
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                }
+            } header: {
+                Text("Engine")
+            } footer: {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("The period is a ceiling rather than a request — the daemon measures the "
+                         + "device's own period and uses that, so 1024 is a safe default.")
+                    if let log = engine.logURL {
+                        Text("The daemon's output is at \(log.path)")
+                            .textSelection(.enabled)
+                    }
+                }
+                .fixedSize(horizontal: false, vertical: true)
+            }
+            .onChange(of: local) { _, updated in LocalEngineStore.save(updated) }
+        }
+    }
+
+    /// The toggle is a *request*, so it calls the engine rather than writing a flag: "on" means a
+    /// process was started (or an existing daemon adopted), and "off" means it was stopped. A run
+    /// that failed leaves the switch where the state says it is, with the reason underneath.
+    private var localToggle: Binding<Bool> {
+        Binding(get: { engine.state.isUp || (local.wantsLocal && engine.state == .starting) },
+                set: { wanted in
+                    var updated = local
+                    updated.wantsLocal = wanted
+                    local = updated
+                    LocalEngineStore.save(updated)
+                    if wanted {
+                        Task { await engine.start(session: session, settings: updated, library: library) }
+                    } else {
+                        engine.stop()
+                        session.disconnect()
+                    }
+                })
+    }
+
+    /// \brief The input: which WAV the engine loops in place of an instrument.
+    ///
+    /// Shown whether or not the engine is running, because it is the one thing a person has to
+    /// supply. The engine starts with namchain's own example capture already in the field when there
+    /// is one, so "switch it on and listen" works without a decision being made first.
+    private var inputFile: some View {
+        Section {
+            pathRow("File", text: $local.loopFilePath,
+                    prompt: exampleLoopFile.map { "Example: \(($0.path as NSString).lastPathComponent)" }
+                        ?? "A WAV, played in place of an instrument",
+                    pick: .loopFile)
+            HStack(spacing: 10) {
+                Button("Use Example Capture", action: useExampleLoopFile)
+                    .disabled(exampleLoopFile == nil || local.loopFilePath == exampleLoopFile?.path)
+                Spacer()
+            }
+            .frame(minHeight: Metrics.minTouchTarget)
+        } header: {
+            Text("Input")
+        } footer: {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Looped for as long as the engine runs. A 48 kHz mono or stereo WAV; anything "
+                     + "else is refused by name rather than played at the wrong speed.")
+                if exampleLoopFile == nil {
+                    Text("namchain's example capture was not found beside the namchaind binary, so "
+                         + "there is nothing to fall back to — choose a WAV.")
+                }
+            }
+            .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    /// The binary the app would find for itself, shown as the prompt so "empty" is not a mystery.
+    private var foundLauncher: String? {
+        LocalEnginePlan.defaultLauncher()?.path
+    }
+
+    /// The example capture that would be used, if there is one. Shown as a hint so a blank field is
+    /// not a mystery, and it is what decides whether the reset button does anything.
+    private var exampleLoopFile: URL? {
+        LocalEnginePlan.defaultLoopFile(launcher: local.launcherPath)
+    }
+
+    private func useExampleLoopFile() {
+        guard let example = exampleLoopFile else { return }
+        var updated = local
+        updated.loopFilePath = example.path
+        local = updated
+        LocalEngineStore.save(updated)
+    }
+
+    private func pathRow(_ name: String, text: Binding<String>, prompt: String,
+                         pick: LocalPath) -> some View {
+        LabeledContent(name) {
+            HStack(spacing: 8) {
+                TextField(name, text: text, prompt: Text(prompt))
+                    .labelsHidden()
+                    .textFieldStyle(.plain)
+                    .multilineTextAlignment(.trailing)
+                    .lineLimit(1)
+                    .truncationMode(.head)
+                Button("Choose…") { pickMode = pick; pickingFile = true }
+                    .controlSize(.small)
+            }
+        }
+    }
+    #else
+    /// iOS has no local engine, so there is no input to choose. See `localEngine`.
+    @ViewBuilder
+    private var inputFile: some View { EmptyView() }
+
+    @ViewBuilder
+    private var localEngineDevice: some View { EmptyView() }
+    #endif
 
     private var address: some View {
         Section {
@@ -191,6 +415,16 @@ struct HardwareSettingsView: View {
         host = session.settings.host
         port = String(session.settings.port)
         token = session.settings.token
+        // The input field shows what the engine would loop, so an empty one is filled with the
+        // example the moment the page is opened — the engine does the same at start, and a field
+        // that disagrees with it is worse than one that is ahead of it. Resolved rather than read
+        // from the macOS-only helper above, because this runs on both platforms and the local
+        // engine's preferences are in the store either way.
+        if local.loopFilePath.trimmingCharacters(in: .whitespaces).isEmpty,
+           let example = LocalEnginePlan.defaultLoopFile(launcher: local.launcherPath) {
+            local.loopFilePath = example.path
+            LocalEngineStore.save(local)
+        }
     }
 
     private func save(andConnect connect: Bool) {

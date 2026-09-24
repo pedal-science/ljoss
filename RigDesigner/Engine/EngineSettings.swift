@@ -133,3 +133,27 @@ enum EngineSettingsStore {
         guard add == errSecSuccess else { throw KeychainError(status: add) }
     }
 }
+
+// MARK: - The local engine's own preferences
+
+/// Where the app remembers its decision to run namchaind itself.
+///
+/// Preferences rather than the keychain, because none of it is a secret: a path to a binary, a path
+/// to a WAV, a port, and whether the app was doing this last time. The daemon's *token* is generated
+/// per engine and handed to the session, not stored here.
+enum LocalEngineStore {
+
+    private static let key = "localEngine.settings"
+
+    static func load() -> LocalEngineSettings {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let settings = try? JSONDecoder().decode(LocalEngineSettings.self, from: data)
+        else { return LocalEngineSettings() }
+        return settings
+    }
+
+    static func save(_ settings: LocalEngineSettings) {
+        guard let data = try? JSONEncoder().encode(settings) else { return }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}

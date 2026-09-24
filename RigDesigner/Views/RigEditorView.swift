@@ -4,6 +4,10 @@ struct RigEditorView: View {
     @State private var editor: RigEditor
     @State private var paletteSource: SourceKind
     @State private var showingInspector = false
+    /// What the user has said about the models in the library. The editor is where a
+    /// model is actually used, so this is where a use is written down.
+    @Environment(ModelUserDataStore.self) private var userData
+    @Environment(\.scenePhase) private var scenePhase
     /// A viewing preference, not part of the rig: on by default, remembered
     /// across launches, and the same for every rig.
     @AppStorage("wrapsChains") private var wrapsChains = true
@@ -52,15 +56,43 @@ struct RigEditorView: View {
             InspectorSheet()
                 .environment(editor)
         }
-        .onChange(of: editor.selection) { _, new in
-            showingInspector = new != nil
+        .onChange(of: editor.selection) { was, now in
+            // Deselecting on the canvas closes the config just as Done does, and the
+            // selection is already gone by the time the sheet's binding changes — so
+            // the model is noted here, from the selection on its way out. `showingInspector`
+            // is what tells the two paths apart, so the model is not noted twice.
+            if now == nil, showingInspector { noteUsed(was) }
+            showingInspector = now != nil
         }
         .onChange(of: showingInspector) { _, shown in
-            if !shown { editor.selection = nil }
+            if !shown {
+                noteUsed(editor.selection)
+                editor.selection = nil
+            }
+        }
+        .onChange(of: scenePhase) { _, phase in
+            // Leaving the app with a model picked in the active rig is using it, and it
+            // is the one commit that happens without the config being closed.
+            if phase != .active { noteUsedInRig() }
         }
         // A tick as the gap jumps to a new slot, and a thump on pick-up.
         .sensoryFeedback(.selection, trigger: editor.drag.targetChangeCount)
         .sensoryFeedback(.impact(weight: .medium), trigger: editor.drag.isActive) { _, now in now }
+    }
+
+    // MARK: - Recording a use
+
+    /// Note the model a config was editing, if it was editing a node that runs one.
+    private func noteUsed(_ selection: RigEditor.Selection?) {
+        guard let selection, case .block(let id) = selection,
+              let block = editor.rig.allBlocks.first(where: { $0.id == id }),
+              let key = ModelUsage.pickedModel(in: block) else { return }
+        userData.markUsed([key])
+    }
+
+    /// Note every model picked anywhere in the rig the user is leaving.
+    private func noteUsedInRig() {
+        userData.markUsed(ModelUsage.pickedModels(in: editor.rig))
     }
 
     private var canvas: some View {

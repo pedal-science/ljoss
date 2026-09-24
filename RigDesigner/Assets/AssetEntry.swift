@@ -64,6 +64,11 @@ struct AssetEntry: Codable, Hashable, Sendable, Identifiable {
     var make: String
     var model: String?
     var architecture: String?
+    /// `metadata.gear_type`, when the file declared one. `amp_cab` and
+    /// `amp_pedal_cab` are the two that name a cabinet, which is the difference the
+    /// finder's Type filter draws; everything else — including a file that said
+    /// nothing — is an amp on its own (`docs/ASSETS.md`).
+    var gearType: String? = nil
     var sampleRate: Double?
     var channels: Int?
     var frames: Int?
@@ -104,6 +109,26 @@ struct AssetEntry: Codable, Hashable, Sendable, Identifiable {
     }
 
     var isModel: Bool { kind == .model }
+
+    /// Whether this model's capture includes the cabinet, as far as the file said.
+    ///
+    /// Absence is not the same as "no cab", but it is the only honest reading: the two
+    /// `gear_type` values that name a cabinet are known, and a file that declared
+    /// nothing is treated as an amp on its own rather than guessed at from its name.
+    var includesCab: Bool {
+        guard let gearType = gearType?.lowercased() else { return false }
+        return gearType == "amp_cab" || gearType == "amp_pedal_cab"
+    }
+
+    /// The key the finder's user data — a rating, a use, a remembered search — is filed
+    /// under.
+    ///
+    /// The path under the folder without its extension is the id a document names a
+    /// file by (`libraryID`); lowercased, it survives the app being deleted and
+    /// re-installed as long as the folders are added back the same way. It is
+    /// deliberately **not** `id`: that begins with a root UUID, which is fresh every
+    /// time a folder is added.
+    var userKey: String { libraryID.lowercased() }
 }
 
 // MARK: - What is on disk

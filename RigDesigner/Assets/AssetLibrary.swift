@@ -25,6 +25,10 @@ final class AssetLibrary {
     /// Folders that contributed nothing, and why.
     private(set) var issues: [AssetRootIssue] = []
     private(set) var state: ScanState = .idle
+    /// How far the reading pass has got, once the listing pass has counted the files it
+    /// has to open. `nil` while the folders are still being walked, when the number is
+    /// not known yet.
+    private(set) var progress: AssetScanProgress?
     /// Where a load, a save or a folder went wrong, so the page can say so rather than
     /// fail silently.
     private(set) var lastError: String?
@@ -225,6 +229,7 @@ final class AssetLibrary {
         scanTask = nil
         clearTask?.cancel()
         clearTask = nil
+        progress = nil
 
         guard !roots.isEmpty else {
             entries = []
@@ -240,29 +245,44 @@ final class AssetLibrary {
         state = .scanning
 
         scanTask = Task { [weak self] in
-            // Off the main actor, in one hop: the walk is filesystem work with no
-            // suspension points, which is also what makes the security-scoped access
-            // start and stop inside the folders it belongs to.
-            let outcome = await Task.detached(priority: .utility) {
-                AssetScan.run(roots: scanRoots, previous: previous, now: now)
+            // Off the main actor, in one hop: the folders are walked off the main
+            // thread, and the files that have to be opened are read several at a time
+            // inside the scan itself.
+            let outcome = await Task.detached(priority: .utility) { [weak self] in
+                await AssetScan.runConcurrently(roots: scanRoots, previous: previous, now: now) { progress in
+                    await MainActor.run { self?.publish(progress, generation: generation) }
+                }
             }.value
 
             guard let self, !Task.isCancelled, self.generation == generation else { return }
             self.entries = outcome.entries
             self.issues = outcome.issues
             self.hasScanned = true
+            self.progress = nil
             self.save()
             self.finish(outcome.stats)
         }
     }
 
-    /// Scan the first time the page is opened in a session.
+    /// Take a step of the reading pass, if it is still the current scan.
     ///
-    /// Not at launch, and not on a timer: a library nobody has looked at has not asked
-    /// to be read, and nothing here watches a folder — the daemon's rule, for the same
-    /// reason (`docs/assets.md`).
+    /// A superseded scan's steps are dropped with its result, and the count never walks
+    /// backwards — the bar is reporting how much has been read, and that only grows.
+    private func publish(_ progress: AssetScanProgress, generation: Int) {
+        guard self.generation == generation, state.isScanning else { return }
+        if let current = self.progress, progress.read < current.read { return }
+        self.progress = progress
+    }
+
+    /// Scan now, unless one is already running or one has already finished this session.
+    ///
+    /// Called at launch, so the walk happens in the background while the user is
+    /// elsewhere and the listing is usually fresh before the page is opened; the page
+    /// calls it too, as the fallback. Nothing watches a folder and nothing scans on a
+    /// timer: a library that changes underneath is something the user asks about
+    /// deliberately — the daemon's rule, for the same reason (`docs/ASSETS.md`).
     func scanIfNeeded() {
-        guard !hasScanned, !state.isScanning else { return }
+        guard !roots.isEmpty, !hasScanned, !state.isScanning else { return }
         rescan()
     }
 

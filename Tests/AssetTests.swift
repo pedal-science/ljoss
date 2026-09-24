@@ -208,6 +208,89 @@ func testAssetScanning() {
     check(sixth.issues.count == 1 && sixth.entries.isEmpty, "a file where a folder was expected is reported, not read")
 }
 
+// MARK: - The two passes
+
+func testAssetScanListing() {
+    print("listing the folders before opening anything")
+    let root = tempDirectory("listing")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    write(namText(name: "Deluxe", make: "Fender"), to: root.appending(path: "a.nam"))
+    write(namText(name: "JCM", make: "Marshall"), to: root.appending(path: "b.nam"))
+    try? wavData().write(to: root.appending(path: "c.wav"))
+    let scanRoot = ScanRoot(id: UUID(), url: root)
+
+    let first = AssetScan.listing(roots: [scanRoot], previous: [], now: Date())
+    check(first.toRead == 3, "a first listing says every file has to be opened")
+    check(first.carried.isEmpty && first.added == 3, "…none of them carried over, all of them new")
+
+    // The count that matters: after reading them, a second listing has nothing to open.
+    let entries = first.candidates.map(AssetScan.read)
+    let second = AssetScan.listing(roots: [scanRoot], previous: entries, now: Date())
+    check(second.toRead == 0, "a listing of an unchanged folder has nothing to open")
+    check(second.carried.count == 3, "…and carries every entry over unread")
+
+    // Change one file and exactly one has to be read again — the number the bar gets.
+    write(namText(name: "JCM", make: "Marshall", weights: 40), to: root.appending(path: "b.nam"))
+    let third = AssetScan.listing(roots: [scanRoot], previous: entries, now: Date())
+    check(third.toRead == 1, "a file that changed is the only one the listing says to open")
+    check(third.updated == 1 && third.added == 0, "…and it is an update rather than an addition")
+    check(third.candidates.first?.relative == "b.nam", "…and it is the file that changed")
+
+    // A file that is gone is accounted for by the listing alone, with nothing opened.
+    try? FileManager.default.removeItem(at: root.appending(path: "c.wav"))
+    let fourth = AssetScan.listing(roots: [scanRoot], previous: entries, now: Date())
+    check(fourth.removed == 1, "a file that is gone is counted by the listing")
+}
+
+/// Collects progress steps from whichever thread they arrive on.
+private actor ProgressLog {
+    private(set) var values: [AssetScanProgress] = []
+    func add(_ progress: AssetScanProgress) { values.append(progress) }
+}
+
+func testAssetScanReading() async {
+    print("reading what the listing named, several files at once")
+    let root = tempDirectory("reading")
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    for index in 0..<12 {
+        write(namText(name: "Model \(index)", make: "Fender", weights: index * 10),
+              to: root.appending(path: "m\(index).nam"))
+    }
+    let scanRoot = ScanRoot(id: UUID(), url: root)
+    let now = Date()
+
+    let log = ProgressLog()
+    let parallel = await AssetScan.runConcurrently(roots: [scanRoot], previous: [], now: now, parallelism: 4) {
+        await log.add($0)
+    }
+    check(parallel.stats.parsed == 12, "every file the listing named is read")
+    check(parallel.entries.count == 12, "…and every one of them is listed")
+
+    let progress = await log.values
+    check(progress.first == AssetScanProgress(read: 0, total: 12),
+          "progress starts at zero of the number the listing gave")
+    check(progress.last == AssetScanProgress(read: 12, total: 12), "…and ends at all of it")
+    check(progress.count == 13, "…saying nothing twice")
+    check(zip(progress, progress.dropFirst()).allSatisfy { $1.read == $0.read + 1 },
+          "…one file at a time, in order")
+
+    // The same answer as one-at-a-time is the only thing that says the fan-out is safe.
+    let sequential = AssetScan.run(roots: [scanRoot], previous: [], now: now)
+    check(parallel.entries == sequential.entries, "reading in parallel gives what reading in order gives")
+    check(parallel.stats == sequential.stats, "…and reports the same scan")
+
+    // An unchanged library has nothing to open, so there is no bar to draw.
+    let unchanged = ProgressLog()
+    _ = await AssetScan.runConcurrently(roots: [scanRoot], previous: parallel.entries, now: now, parallelism: 4) {
+        await unchanged.add($0)
+    }
+    let idle = await unchanged.values
+    check(idle == [AssetScanProgress(read: 0, total: 0)],
+          "an unchanged library reports zero files to open, and no steps after that")
+}
+
 // MARK: - Sections and order
 
 func testAssetOrdering() {

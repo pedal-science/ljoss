@@ -13,6 +13,7 @@ import SwiftUI
 enum SettingsArea: String, CaseIterable, Identifiable, Hashable {
     case hardware
     case models
+    case find
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum SettingsArea: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .hardware: "Hardware"
         case .models: "Models & IRs"
+        case .find: "Find Models"
         }
     }
 
@@ -27,6 +29,7 @@ enum SettingsArea: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .hardware: "cable.connector"
         case .models: "waveform"
+        case .find: "magnifyingglass"
         }
     }
 
@@ -34,6 +37,7 @@ enum SettingsArea: String, CaseIterable, Identifiable, Hashable {
         switch self {
         case .hardware: "The device this app plays through"
         case .models: "The folders your captures are kept in"
+        case .find: "Search the captures in those folders"
         }
     }
 }
@@ -105,6 +109,7 @@ struct SettingsDetailView: View {
             switch area {
             case .hardware: HardwareSettingsView()
             case .models: ModelsAndIRsSettingsView()
+            case .find: ModelFinderView()
             }
         }
         .navigationTitle(area.title)

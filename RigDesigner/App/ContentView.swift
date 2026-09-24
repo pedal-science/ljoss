@@ -11,6 +11,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(RigLibrary.self) private var library
     @Environment(EngineSession.self) private var engine
+    @Environment(ModelUserDataStore.self) private var userData
 
     @State private var selection: UUID?
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -38,6 +39,15 @@ struct ContentView: View {
         }
         .onAppear {
             if selection == nil { selection = library.rigs.first?.id }
+        }
+        .onChange(of: selection) { outgoing, incoming in
+            // Leaving a rig with a model picked in one of its nodes is using that model.
+            // This is the only one of the three moments the editor cannot see: the rig
+            // that is being left is the shell's `selection`, not the editor's.
+            guard outgoing != incoming,
+                  let outgoing,
+                  let rig = library.rig(id: outgoing) else { return }
+            userData.markUsed(ModelUsage.pickedModels(in: rig))
         }
     }
 

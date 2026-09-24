@@ -54,10 +54,19 @@ final class EngineSession {
 
     // MARK: Private
 
-    private var client: EngineClient?
-    private var poller: Task<Void, Never>?
-    private var debounce: Task<Void, Never>?
-    private var latest: Rig?
+    // These four are `@ObservationIgnored`, and that is load-bearing rather than tidiness. An
+    // `@Observable` property is tracked whether or not it is `private`, and `debounce` is *assigned*
+    // on every `rigDidChange` — so without this, building the editor (which calls `rigDidChange` from
+    // `RigEditor.init`) invalidates every view that reads the session, which rebuilds the editor,
+    // which calls `rigDidChange` again. That is a self-sustaining loop: measured at 3,400 editor
+    // constructions per second and 100 % of a core, and it only shows up while the session is
+    // connected, because that is when the debounce is scheduled at all.
+    //
+    // Nothing outside this class reads any of them, so ignoring them changes no view's behaviour.
+    @ObservationIgnored private var client: EngineClient?
+    @ObservationIgnored private var poller: Task<Void, Never>?
+    @ObservationIgnored private var debounce: Task<Void, Never>?
+    @ObservationIgnored private var latest: Rig?
 
     init(settings: EngineSettings = EngineSettingsStore.load()) {
         self.settings = settings

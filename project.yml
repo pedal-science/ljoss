@@ -25,20 +25,28 @@ targets:
         type: file
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.rigdesigner
+        PRODUCT_BUNDLE_IDENTIFIER: cc.hemsley.ljoss
         PRODUCT_NAME: RigDesigner
         GENERATE_INFOPLIST_FILE: true
+        INFOPLIST_FILE: RigDesigner/Info.plist
         INFOPLIST_KEY_UILaunchScreen_Generation: true
-        INFOPLIST_KEY_CFBundleDisplayName: Rig Designer
-        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_CFBundleDisplayName: Ljoss
+        INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.music
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSHumanReadableCopyright: ""
         # iOS 14+ refuses a connection to a LAN address without this, and it fails
         # silently rather than with an error a client can report.
         INFOPLIST_KEY_NSLocalNetworkUsageDescription: "Rig Designer connects to your namchain device on the local network to send it the rig you are editing."
         TARGETED_DEVICE_FAMILY: "1,2"
+        # iCloud key-value storage only works in a code-signed app carrying the
+        # ubiquity-kvstore-identifier entitlement; without both, every write to
+        # `NSUbiquitousKeyValueStore` silently no-ops. Signing must therefore stay
+        # on — an ad-hoc build cannot carry the entitlement a real device accepts.
+        DEVELOPMENT_TEAM: CW7QBC95TL
         CODE_SIGN_STYLE: Automatic
-        CODE_SIGNING_REQUIRED: "NO"
-        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGN_IDENTITY: "Apple Development"
+        "CODE_SIGN_IDENTITY[sdk=macosx*]": "Apple Development"
+        CODE_SIGN_ENTITLEMENTS: RigDesigner/RigDesigner.entitlements
         SWIFT_STRICT_CONCURRENCY: complete
         ENABLE_HARDENED_RUNTIME: "YES"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
