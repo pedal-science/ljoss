@@ -71,11 +71,18 @@ Three id spaces, none of them composed out of the others:
 | `role` | the engine | which node of a lowered macro this is |
 | `id` | either | the node's identity inside the graph |
 
-**Ops address by `node`, not by `element`.** We supply explicit ids
-(`<uuid>-nam`, `<uuid>-tone`), so we can always name a node exactly. Addressing a
-multi-node element without a role is refused by the daemon, and `role` is the
-engine's word to coin — so we do not invent one. `element` still goes on every node,
-because that is what makes a `rig.get` dump recognisable as our work.
+**A primitive's parameter is addressed by `node`, a macro's by `element`.** We supply
+explicit ids (`<uuid>-nam`, `<uuid>-tone`), so we can always name a node exactly. But
+a macro's node is not in the running plan. The engine expands it into primitives when
+it compiles the chain, so the only address that ramps a macro's parameter is its
+`element`, alone. A `set_param` that names the macro by `node` is applied to the
+document and rebuilds the chain; against a daemon, the same EQ op answered `smooth`
+by element and `structural` by node. The engine takes the element's first macro, and
+no block lowers to two macros, so an element never names more than one. If one ever
+does, `EngineEdits` sends the whole document rather than guess.
+
+`role` stays the engine's word to coin, and we never send one. `element` goes on every
+node, because that is what makes a `rig.get` dump recognisable as our work.
 
 ## What maps, and what does not
 
@@ -155,6 +162,49 @@ autosave debounce.
 diagnostic and nothing is ever rehydrated from it. When the two disagree, the
 recovery is to re-send the whole document, which is a button.
 
+## Sending an edit
+
+namchain has two paths for an edit. This app picks between them by what the engine
+will do with the edit, not by the kind of control (pedal.project's
+`docs/rig-edits.md`, C4).
+
+**A knob the engine ramps is streamed.**
+- `EngineEdits` compares the document the engine holds with the one the rig now
+  encodes to. When the only differences are numbers on parameters that
+  `engine.schema` marks `rampable`, they go as `rig.patch` `set_param` ops while the
+  control moves.
+- Patches go no more often than every 10 ms, with one in flight at a time. Whatever is
+  waiting when that time comes is sent, so the last value of a drag always arrives.
+- The engine ramps each value inside its node, with no compile and no crossfade. It
+  writes the value into its own document, so a later structural edit keeps it.
+
+**Anything else is the whole document**, once the rig has been still for 250 ms. That
+covers adding, removing or moving a block; picking a model, IR or slope; a bypass; the
+rig's name; and a layout.
+- It waits because a rebuild compiles a new plan, reloads and restarts every model in
+  it, and renders both plans for the fade. A burst of edits should cost one rebuild.
+- For a control whose parameter can't ramp, the wait makes it commit-on-release.
+- A change the engine could reach from the waiting document by ramps alone doesn't
+  restart the wait. So a lane or output level is heard 250 ms after it leaves 0 dB,
+  where its first step adds a gain node, rather than only after the drag ends.
+
+**The comparison is between documents, not rigs**, because the document is what the
+engine holds. A lane at 0 dB has no node, an amp's tone knob reaches the tone stack
+through a transform, and a bypass is on every node of a block. Anything the
+comparison can't show to be a ramp is treated as structural.
+
+**The schema decides what ramps.**
+- A device that doesn't answer `engine.schema` gets every edit as a whole document,
+  as before.
+- If the engine answers a patch with `structural`, meaning it rebuilt for a parameter
+  the schema said ramps, that parameter stops streaming for the rest of the
+  connection. A disagreement then costs one rebuild, not one per step.
+- A refused patch leaves the engine unchanged, so the whole document is sent to bring
+  the two back in step.
+
+Not done yet: a bypass that ramps, which needs the engine to fade a node to its dry
+input without a rebuild, and an edit history.
+
 ## The transport
 
 TCP, default port 47810, off on the device unless an operator turns it on. Every
@@ -185,14 +235,15 @@ answer is a tunnel. There is no push, so `engine.status` is polled at 2 Hz.
 Engine/EngineDocument.swift    the wire types
 Engine/BlockMapping.swift      which blocks map, and how
 Engine/DocumentEncoder.swift   the tree, flattened
+Engine/EngineEdits.swift       which edits stream as ramps, and which need the document
 Engine/EngineProtocol.swift    requests and responses
 Engine/EngineFraming.swift     the length prefix
 Engine/EngineClient.swift      an actor over NWConnection
 Engine/EngineSettings.swift    host, port, and the token in the keychain
-Engine/EngineSession.swift     connection, debounced apply, status polling
+Engine/EngineSession.swift     connection, streamed ramps, debounced documents, status polling
 ```
 
-The first five have **no SwiftUI and no Network**, which is what puts them in
+The first six have **no SwiftUI and no Network**, which is what puts them in
 `run-model-tests.sh` alongside `Model/`. Adding either import to one of them breaks
 the fast test path, the same discipline `Model/` already keeps.
 
@@ -202,15 +253,28 @@ know keeps working across a protocol change.
 
 ## Verified, and not
 
-`./Tests/run-model-tests.sh` — 217 assertions, of which the engine's share covers the
-split/mix shape and the dry lane, chain-to-channel binding, a hidden chain still
-being sent, bypass on every node of a block, the effective-value fallback through the
-catalogue, each class of refusal, the framing under fragmentation and coalescing, and
-that every request type actually puts its method on the wire. That last one is there
-because it did not: `method` began life as a computed property, and synthesised
-`Encodable` writes only stored ones. The assets' share — the sniff, the brand table, the
-scan and the ordering — is the newest; [ASSETS.md](ASSETS.md) says what each of them
-exists to catch.
+`./Tests/run-model-tests.sh` — 255 assertions. The engine's share covers:
+- the split/mix shape and the dry lane;
+- chain-to-channel binding, and a hidden chain still being sent;
+- bypass on every node of a block;
+- the effective-value fallback through the catalogue;
+- each class of refusal;
+- the framing under fragmentation and coalescing;
+- that every request type actually puts its method on the wire. That one is there
+  because it did not: `method` began life as a computed property, and synthesised
+  `Encodable` writes only stored ones.
+- which edits stream ([EditTests.swift](../Tests/EditTests.swift)). Most of those
+  cases must come out structural, because a false ramp is the costly mistake.
+
+The assets' share — the sniff, the brand table, the scan and the ordering — is the
+newest; [ASSETS.md](ASSETS.md) says what each of them exists to catch.
+
+**A knob streams.** `Tools/check-streaming.sh` drives a daemon through `EngineSession`
+itself. Run against namchain `abe1f34` on macOS (`--backend null`), it turned a Gain, a
+Parametric EQ band and a delay's mix together for two seconds, a step every 10 ms:
+- 804 ramps applied, 0 rebuilds and 0 stale;
+- the engine's document ended at the final values;
+- a bypass afterwards rebuilt once.
 
 Both platforms build, and the macOS app has been run and driven by hand — the device
 control, its refusal list, the inspector, and the settings view the device controls and

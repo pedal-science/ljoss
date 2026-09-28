@@ -97,6 +97,48 @@ struct MuteRequest: EngineRequest {
     var chain: String?
 }
 
+/// `set_param` ops for one chain, applied all-or-nothing. This app sends nothing else
+/// in a patch: a parameter the engine ramps, streamed while its control moves
+/// (`EngineEdits`). Every other edit goes as a whole document.
+struct PatchRequest: EngineRequest {
+    var id: String = ""
+    let method = "rig.patch"
+    /// Always named. It may be left out for a one-chain document, but this app sends
+    /// every chain, hidden ones included, so which one a patch is for is never a guess.
+    var chain: String
+    var ops: [PatchOp]
+}
+
+/// How a `set_param` names what it sets.
+enum ParamTarget: Hashable, Sendable {
+    /// A primitive node, by the id this app gave it.
+    case node(String)
+    /// A macro's own parameter, by the element the macro came from. The engine expands
+    /// a macro when it compiles the chain, so the macro's node id is not in the running
+    /// plan; named by id, the same op would rebuild the chain rather than ramp.
+    case element(String)
+}
+
+struct PatchOp: Encodable, Sendable, Hashable {
+    var target: ParamTarget
+    var param: String
+    var value: Double
+
+    private enum CodingKeys: String, CodingKey { case op, node, element, param, value }
+
+    /// Exactly one of `node` and `element`: the engine refuses an op that gives both.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode("set_param", forKey: .op)
+        switch target {
+        case .node(let id): try container.encode(id, forKey: .node)
+        case .element(let element): try container.encode(element, forKey: .element)
+        }
+        try container.encode(param, forKey: .param)
+        try container.encode(value, forKey: .value)
+    }
+}
+
 // MARK: - Responses
 
 struct EngineHello: Decodable, Sendable, Hashable {
@@ -218,6 +260,25 @@ struct PatchResponse: Decodable, Sendable {
     var applied: Int?
     var chain: String?
     var generation: Int?
+}
+
+/// `engine.schema`, reduced to what deciding how to send an edit needs: which types
+/// are macros, and which parameters ramp. The palette and inspector fields, and the
+/// library-backed `options`, are left undecoded.
+struct SchemaResponse: Decodable, Sendable {
+    var nodes: [SchemaNode]?
+}
+
+struct SchemaNode: Decodable, Sendable {
+    var id: String
+    /// `primitive` or `macro`.
+    var kind: String?
+    var params: [SchemaParam]?
+}
+
+struct SchemaParam: Decodable, Sendable {
+    var id: String
+    var rampable: Bool?
 }
 
 /// Nothing to read, but the envelope still has to be checked.

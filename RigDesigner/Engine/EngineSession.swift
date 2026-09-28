@@ -10,6 +10,12 @@ import Observation
 // diagnostic, so nothing is ever rehydrated from the device. And it is **not**
 // synchronous: a reply is an acknowledgement, and what the device is actually
 // hearing is `audible_generation` catching up with `generation`.
+//
+// How an edit reaches the device depends on what the engine does with it
+// (`EngineEdits`). A control whose parameter the engine ramps is **streamed** as it
+// moves: `rig.patch` `set_param`, no more often than `streamInterval`, one patch in
+// flight at a time, and the last value always sent. Anything else is the whole
+// document, once the rig has been still for `applyDebounce`.
 
 @MainActor
 @Observable
@@ -24,10 +30,14 @@ final class EngineSession {
         var isOnline: Bool { self == .online }
     }
 
-    /// Coalesce the flurry a drag produces into one apply, the same shape
-    /// `RigLibrary` uses for its writes. Shorter than the 400 ms disk debounce
-    /// because this one is what the player hears.
+    /// How long a structural edit waits for the rig to be still before it goes as one
+    /// `rig.apply`. The burst an edit produces becomes one rebuild, and a control whose
+    /// parameter cannot ramp behaves as commit-on-release. Shorter than the 400 ms disk
+    /// debounce because this one is what the player hears.
     private static let applyDebounce = Duration.milliseconds(250)
+
+    /// The most often a ramped parameter is sent while its control moves.
+    private static let streamInterval = Duration.milliseconds(10)
 
     /// A few hertz, as docs/ui-integration-plan.md §6.3 asks for. There is no
     /// telemetry subscription to replace it with yet.
@@ -55,12 +65,36 @@ final class EngineSession {
     // MARK: Private
 
     // Plumbing, not state any view shows, so not observed. `rigDidChange` reads and writes
-    // `debounce`, and a view that calls it while building its body would otherwise be
+    // most of it, and a view that calls it while building its body would otherwise be
     // invalidated by its own write and rebuild forever.
     @ObservationIgnored private var client: EngineClient?
     @ObservationIgnored private var poller: Task<Void, Never>?
-    @ObservationIgnored private var debounce: Task<Void, Never>?
     @ObservationIgnored private var latest: Rig?
+
+    /// What the engine ramps, from `engine.schema`. Nil when the device did not say, and
+    /// then every edit goes as a whole document, as it always did before streaming.
+    @ObservationIgnored private var catalogue: EngineCatalogue?
+
+    /// The document the engine will hold once everything already sent, or waiting in
+    /// `pending`, has landed. Each new rig is compared with it. Nil until a whole document
+    /// has been applied on this connection, or once the two may have drifted apart.
+    @ObservationIgnored private var baseline: EngineDocument?
+
+    /// The chains the last apply muted as hidden.
+    @ObservationIgnored private var baselineHidden: [String] = []
+
+    /// Ramps not yet sent, and the task sending them. At most one patch is in flight.
+    @ObservationIgnored private var pending = PendingEdits()
+    @ObservationIgnored private var gate = StreamGate(interval: EngineSession.streamInterval)
+    @ObservationIgnored private var sender: Task<Void, Never>?
+
+    /// A whole document waiting out `applyDebounce`, and what the rig encoded to when the
+    /// wait last started.
+    @ObservationIgnored private var debounce: Task<Void, Never>?
+    @ObservationIgnored private var debounced: EngineDocument?
+
+    /// Whole documents on their way. Whatever changes meanwhile is looked at when they land.
+    @ObservationIgnored private var applying = 0
 
     init(settings: EngineSettings = EngineSettingsStore.load()) {
         self.settings = settings
@@ -91,10 +125,17 @@ final class EngineSession {
             // options, so one fetch per connection is the documented story.
             assets = (try? await client.call(AssetsRequest(refresh: false),
                                              expecting: AssetsResponse.self)) ?? AssetsResponse()
+            // What the engine ramps. A device that does not say gets every edit as a whole
+            // document: slower to hear and a rebuild each time, but never wrong.
+            if hello?.has("schema") == true, hello?.has("smooth_params") == true,
+               let schema = try? await client.call(PlainRequest("engine.schema"),
+                                                   expecting: SchemaResponse.self) {
+                catalogue = EngineCatalogue(schema: schema)
+            }
             startPolling()
             // Reconcile: the device is running whatever it was left with, and this
             // app owns the document, so the document wins.
-            if let latest { await send(latest) }
+            if let latest { await apply(latest) }
         } catch {
             connection = .failed(describe(error))
             self.client = nil
@@ -104,6 +145,11 @@ final class EngineSession {
     func disconnect() {
         poller?.cancel(); poller = nil
         debounce?.cancel(); debounce = nil
+        debounced = nil
+        sender?.cancel(); sender = nil
+        pending.removeAll()
+        baseline = nil
+        catalogue = nil
         let client = self.client
         self.client = nil
         Task { await client?.close() }
@@ -126,29 +172,163 @@ final class EngineSession {
 
     // MARK: - Sending
 
-    /// Called from `RigEditor.rig.didSet`, beside the library's own write. A drag is
-    /// local and a drop is one commit, so this fires once per committed edit.
+    /// Called from `RigEditor.rig.didSet`, beside the library's own write: once per
+    /// drop on the canvas, and at every step of a knob.
     func rigDidChange(_ rig: Rig) {
         latest = rig
         // Encoded even when offline, so the canvas can badge what this device could
         // not play before anyone tries to send it.
-        let found = DocumentEncoder.encode(rig).refusals
-        if found != refusals { refusals = found }
+        let encoded = DocumentEncoder.encode(rig)
+        if encoded.refusals != refusals { refusals = encoded.refusals }
 
         guard connection.isOnline else { return }
-        debounce?.cancel()
-        debounce = Task { [weak self] in
-            try? await Task.sleep(for: Self.applyDebounce)
-            guard !Task.isCancelled, let self else { return }
-            await self.send(rig)
-        }
+        route(encoded)
     }
 
     /// Re-send the whole document. The recovery path when the device and this app
     /// have drifted apart — another client, an operator's reload, a failed node.
     func resend() async {
         guard let latest else { return }
-        await send(latest)
+        debounce?.cancel(); debounce = nil
+        debounced = nil
+        await apply(latest)
+    }
+
+    /// Stream the change if the engine can ramp all of it. Otherwise send the whole
+    /// document, once the rig has been still for `applyDebounce`.
+    private func route(_ encoded: EncodeResult) {
+        guard connection.isOnline else { return }
+        if debounce == nil, applying == 0, let edits = ramps(to: encoded) {
+            queue(edits, reaching: encoded.document)
+            return
+        }
+        scheduleDocument(encoded.document)
+    }
+
+    /// The ramps that take the engine from `baseline` to this rig: empty when nothing
+    /// it holds differs, nil when only a whole document will do.
+    private func ramps(to encoded: EncodeResult) -> [ParamEdit]? {
+        guard let baseline, let catalogue, let document = encoded.document,
+              encoded.hiddenChainIDs == baselineHidden,
+              channelRefusals(for: encoded).isEmpty else { return nil }
+        switch EngineEdits.change(from: baseline, to: document, catalogue: catalogue) {
+        case .none: return []
+        case .ramps(let edits): return edits
+        case .structural: return nil
+        }
+    }
+
+    private func queue(_ edits: [ParamEdit], reaching document: EngineDocument?) {
+        guard !edits.isEmpty, let document else { return }
+        baseline = document
+        pending.add(edits)
+        pump()
+    }
+
+    // MARK: Ramps
+
+    /// Send what `pending` holds, no sooner than `streamInterval` after the last patch
+    /// and never while one is on its way. Whatever is waiting goes when that time
+    /// comes, so the last value of a drag is always sent.
+    private func pump() {
+        guard sender == nil, !pending.isEmpty, let client else { return }
+        let wait = gate.wait(at: .now)
+        sender = Task { [weak self] in
+            if wait > .zero { try? await Task.sleep(for: wait) }
+            await self?.flush(using: client)
+        }
+    }
+
+    private func flush(using client: EngineClient) async {
+        // A reconnect since this was scheduled has started over with its own state.
+        guard self.client === client else { return }
+        await sendPending(using: client)
+        guard self.client === client else { return }
+        sender = nil
+        pump()
+    }
+
+    /// Everything waiting, one patch per chain.
+    private func sendPending(using client: EngineClient) async {
+        guard connection.isOnline else {
+            pending.removeAll()
+            return
+        }
+        for batch in pending.take() {
+            gate.sent(at: .now)
+            do {
+                let reply = try await client.call(batch.request, expecting: PatchResponse.self)
+                if reply.kind == "structural" {
+                    // The engine rebuilt for a parameter the schema says ramps. Streaming it
+                    // would be a rebuild at every step, so it goes back to whole documents.
+                    for edit in batch.edits { catalogue?.stopRamping(edit.type, edit.param) }
+                }
+            } catch let failure as EngineFailure {
+                // A refused patch leaves the engine as it was, so the two now disagree, and
+                // the whole document puts them back in step.
+                lastFailure = failure
+                resynchronise()
+                return
+            } catch {
+                connection = .failed(describe(error))
+                poller?.cancel()
+                poller = nil
+                return
+            }
+        }
+    }
+
+    private func resynchronise() {
+        baseline = nil
+        pending.removeAll()
+        if let latest { scheduleDocument(DocumentEncoder.encode(latest).document) }
+    }
+
+    // MARK: Whole documents
+
+    /// Send the whole document once the rig has been still for `applyDebounce`.
+    ///
+    /// A change the engine could reach from the waiting document by ramps alone does not
+    /// restart the wait: the document is encoded when it goes, so it will carry that
+    /// change too. That is what lets a knob whose first step adds a node — a lane or
+    /// output level leaving 0 dB — be heard 250 ms into the drag rather than after it.
+    private func scheduleDocument(_ document: EngineDocument?) {
+        guard applying == 0 else { return }
+        if debounce != nil, let debounced, let document, let catalogue,
+           EngineEdits.change(from: debounced, to: document, catalogue: catalogue) != .structural {
+            return
+        }
+        debounced = document
+        debounce?.cancel()
+        debounce = Task { [weak self] in
+            try? await Task.sleep(for: Self.applyDebounce)
+            guard !Task.isCancelled else { return }
+            await self?.debounceElapsed()
+        }
+    }
+
+    private func debounceElapsed() async {
+        debounce = nil
+        debounced = nil
+        guard let latest else { return }
+        // The rig may have come back within reach of ramps while it waited: a toggle
+        // turned off again costs nothing.
+        let encoded = DocumentEncoder.encode(latest)
+        if let edits = ramps(to: encoded) {
+            queue(edits, reaching: encoded.document)
+            return
+        }
+        await apply(latest)
+    }
+
+    /// Send the whole document, and then look again at whatever changed on the way.
+    private func apply(_ rig: Rig) async {
+        applying += 1
+        await send(rig)
+        applying -= 1
+        if applying == 0, connection.isOnline, let latest, latest != rig {
+            route(DocumentEncoder.encode(latest))
+        }
     }
 
     private func send(_ rig: Rig) async {
@@ -164,8 +344,15 @@ final class EngineSession {
         defer { isSending = false }
 
         do {
+            // Ramps still waiting go first. They are relative to what the engine holds
+            // now, and one sent after the document would name what it replaced.
+            await sendPending(using: client)
+            guard connection.isOnline else { return }
+
             _ = try await client.call(ApplyRequest(document: document), expecting: ApplyResponse.self)
             lastFailure = nil
+            baseline = document
+            baselineHidden = result.hiddenChainIDs
 
             // A hidden chain is sent and then muted, visibly: `layout` is a viewing
             // preference, and a layout tap that silently changed what is audible is

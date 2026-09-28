@@ -56,6 +56,19 @@ enum TestRigs {
         return rig
     }
 
+    /// One chain of three blocks whose knobs the engine ramps: a Gain (a primitive), a
+    /// Parametric EQ and a Digital Delay (both macros, so their knobs are addressed by
+    /// element). `check-streaming` turns all three at once.
+    static func streaming() -> Rig {
+        var rig = RigFactory.emptyRig(name: "Streaming", layout: .single)
+        rig.chains[0].elements = [
+            .block(Block(componentID: "util.gain")),
+            .block(Block(componentID: "eq.parametric")),
+            .block(Block(componentID: "delay.digital")),
+        ]
+        return rig
+    }
+
     static let byName: [String: @Sendable () -> Rig] = [
         "empty": empty,
         "gain0": { gain(decibels: nil) },
@@ -66,6 +79,7 @@ enum TestRigs {
         // x + (−x): the lanes cancel to the sample, so the split, the mixer and the lane's
         // polarity node together make a null test.
         "splitnull": { split(lanes: 2, invertingLast: true) },
+        "streaming": streaming,
     ]
 
     static let names = byName.keys.sorted().joined(separator: "|")

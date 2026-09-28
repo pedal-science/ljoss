@@ -15,8 +15,8 @@ xcodebuild -project RigDesigner.xcodeproj -scheme RigDesigner -destination 'plat
 ./Tests/run-model-tests.sh        # model, geometry, encoder and wire assertions; plain swiftc
 ```
 
-Checks that need a real daemon are tools, not tests: `Tools/dump-engine-document.sh` and
-`Tools/check-device.sh` (see `docs/ENGINE.md`).
+Checks that need a real daemon are tools, not tests: `Tools/dump-engine-document.sh`,
+`Tools/check-device.sh` and `Tools/check-streaming.sh` (see `docs/ENGINE.md`).
 
 ## Constraints
 

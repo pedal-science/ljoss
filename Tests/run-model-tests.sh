@@ -21,6 +21,7 @@ sources=(
   "$root"/RigDesigner/Engine/DocumentEncoder.swift
   "$root"/RigDesigner/Engine/EngineProtocol.swift
   "$root"/RigDesigner/Engine/EngineFraming.swift
+  "$root"/RigDesigner/Engine/EngineEdits.swift
   "$root"/RigDesigner/Assets/AssetEntry.swift
   "$root"/RigDesigner/Assets/NAMSniff.swift
   "$root"/RigDesigner/Assets/MakeHeuristics.swift
@@ -30,6 +31,7 @@ sources=(
   "$root"/Tests/FlowTests.swift
   "$root"/Tests/EncoderTests.swift
   "$root"/Tests/WireTests.swift
+  "$root"/Tests/EditTests.swift
   "$root"/Tests/AssetTests.swift
   "$root"/Tests/main.swift
 )
