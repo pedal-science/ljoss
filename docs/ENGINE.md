@@ -212,7 +212,7 @@ message is a u32 **little-endian** length prefix and one JSON body, and
 `engine.hello` carries a pre-shared token of at least 16 characters before anything
 else is answered.
 
-Three things a hand-rolled client gets wrong, all of which the daemon's tests
+Four things a hand-rolled client gets wrong, all of which the daemon's tests
 exercise from the other side and [WireTests.swift](../Tests/WireTests.swift) covers
 from this one:
 
@@ -224,6 +224,12 @@ from this one:
 - **Adoption is asynchronous.** A reply is an acknowledgement. What the device is
   *hearing* is `audible_generation` catching up with `generation`, and during a
   structural change the two differ for the length of a crossfade.
+- **A reply can be far larger than a request.** A request is capped at the daemon's
+  1 MiB `tcp_max_message_bytes`. A reply has its own 16 MiB limit, because
+  `engine.assets` and `engine.schema` list the device's whole library, about 1 MB each
+  for 1,500 impulse responses. The client reads replies up to 16 MiB; until namchain
+  `503aac9` it refused anything over 1 MiB, and the daemon hung up after a reply that
+  large.
 
 There is no discovery — no mDNS, no Bonjour — so the host is typed in. There is no
 TLS either: the token travels in clear text, and off a trusted network the documented

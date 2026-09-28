@@ -51,6 +51,17 @@ func testFraming() {
     check(refused, "a length past the cap is refused from the header, not read")
 
     check(EngineFraming.frame(Data()).count == 4, "an empty body is still a legal frame")
+
+    // A reply lists the device's library, so it may be far past the request limit: a real one's
+    // `engine.assets` is about a megabyte on its own.
+    let library = Data(repeating: UInt8(ascii: " "), count: 2 * EngineFraming.defaultMaxMessageBytes)
+    var large = EngineFraming.frame(library)
+    check((try? EngineFraming.cut(from: &large, maxMessageBytes: EngineFraming.maxReplyBytes)) == [library],
+          "a reply twice the request limit is read whole under the reply limit")
+    var asRequest = EngineFraming.frame(library)
+    var tooLarge = false
+    do { _ = try EngineFraming.cut(from: &asRequest) } catch { tooLarge = true }
+    check(tooLarge, "…and would be refused under the request limit, which is why replies have their own")
 }
 
 func testResponseDecoding() {

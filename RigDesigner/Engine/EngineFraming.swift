@@ -16,8 +16,13 @@ enum EngineFraming {
 
     static let headerBytes = 4
 
-    /// The daemon's own `tcp_max_message_bytes` default.
+    /// The daemon's own `tcp_max_message_bytes` default: the largest request it takes.
     static let defaultMaxMessageBytes = 1 << 20
+
+    /// The daemon's reply limit (`kMaxReplyBytes`, namchain's `framing.h`). Replies list what the
+    /// device holds, and `engine.assets` and `engine.schema` carry its whole library: about 1 MB
+    /// each for 1,500 impulse responses, which is past the request limit on its own.
+    static let maxReplyBytes = 16 << 20
 
     enum Failure: Error, Sendable, Hashable {
         /// A length the far end would never have sent, so the stream is out of step.

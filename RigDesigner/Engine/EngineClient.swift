@@ -13,9 +13,12 @@ import Network
 
 actor EngineClient {
 
-    /// The daemon's own default cap. Checked on the way out too, so an oversized
-    /// document is refused before it is sent rather than costing the connection.
+    /// The daemon's own default cap on a request. Checked on the way out, so an
+    /// oversized document is refused before it is sent rather than costing the connection.
     private static let maxMessageBytes = EngineFraming.defaultMaxMessageBytes
+
+    /// What a reply may be. Larger than a request: a reply lists the device's library.
+    private static let maxReplyBytes = EngineFraming.maxReplyBytes
 
     /// Long enough for a document apply that has to compile and prewarm every chain,
     /// short enough that a dead device is noticed rather than waited on.
@@ -196,7 +199,7 @@ actor EngineClient {
     /// `EngineFraming` handles both, and is tested without a socket.
     private func cutFrames() throws {
         do {
-            for body in try EngineFraming.cut(from: &inbox, maxMessageBytes: Self.maxMessageBytes) {
+            for body in try EngineFraming.cut(from: &inbox, maxMessageBytes: Self.maxReplyBytes) {
                 deliver(body)
             }
         } catch EngineFraming.Failure.declaredTooLarge(let length) {
