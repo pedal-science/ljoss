@@ -326,5 +326,12 @@ established, in order:
   publishes a lane count as `"flag"`, a boolean — but that is namchain's label to fix,
   and nothing on this side reads it.
 
-And nothing here has been near the board, an audio interface, or iOS. The local-network
-permission prompt still has never appeared, because macOS does not ask for one.
+Since then the macOS app has driven piv, the pedal's stand-in board, over WiFi
+(pedal.project's step 8 soak, 2026-09-28). Nothing here has been near iOS.
+
+**macOS does enforce local-network privacy.** A build it hasn't allowed has its
+connections refused before a packet leaves, and the refusal shows only in the system
+log, as `Local network prohibited`. The permission follows the app's signing identity.
+Until 2026-09-28 the app was built unsigned, so the linker gave it a new ad-hoc
+identity at every build and each rebuild lost the permission. It is now signed with
+the developer team in `project.yml`, so the permission is granted once and kept.
