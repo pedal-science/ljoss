@@ -38,8 +38,13 @@ final class RigEditor {
         self.rig = rig
         self.library = library
         self.engine = engine
-        // So the canvas can badge what this device cannot play before anything is
-        // dragged, and so a freshly opened rig reaches a connected device.
+    }
+
+    /// Called when the editor appears, not from `init`: SwiftUI runs `RigEditorView.init`,
+    /// and so this class's, on every render of its parent, and `@State` keeps only the first.
+    /// So the canvas can badge what this device cannot play before anything is dragged, and
+    /// so a freshly opened rig reaches a connected device.
+    func didAppear() {
         engine?.rigDidChange(rig)
     }
 

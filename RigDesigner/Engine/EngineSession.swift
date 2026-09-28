@@ -54,10 +54,13 @@ final class EngineSession {
 
     // MARK: Private
 
-    private var client: EngineClient?
-    private var poller: Task<Void, Never>?
-    private var debounce: Task<Void, Never>?
-    private var latest: Rig?
+    // Plumbing, not state any view shows, so not observed. `rigDidChange` reads and writes
+    // `debounce`, and a view that calls it while building its body would otherwise be
+    // invalidated by its own write and rebuild forever.
+    @ObservationIgnored private var client: EngineClient?
+    @ObservationIgnored private var poller: Task<Void, Never>?
+    @ObservationIgnored private var debounce: Task<Void, Never>?
+    @ObservationIgnored private var latest: Rig?
 
     init(settings: EngineSettings = EngineSettingsStore.load()) {
         self.settings = settings
@@ -129,7 +132,8 @@ final class EngineSession {
         latest = rig
         // Encoded even when offline, so the canvas can badge what this device could
         // not play before anyone tries to send it.
-        refusals = DocumentEncoder.encode(rig).refusals
+        let found = DocumentEncoder.encode(rig).refusals
+        if found != refusals { refusals = found }
 
         guard connection.isOnline else { return }
         debounce?.cancel()

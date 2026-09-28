@@ -43,6 +43,7 @@ struct RigEditorView: View {
         }
         .overlay { DragGhostLayer() }
         .environment(editor)
+        .onAppear { editor.didAppear() }
         .navigationTitle(editor.rig.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
