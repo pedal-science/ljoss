@@ -94,7 +94,7 @@ struct HardwareSettingsView: View {
         case .connecting:
             return address
         case .failed(let why):
-            return why
+            return session.isRetrying ? "\(why) Trying again." : why
         case .online:
             guard let status = session.status, let generation = status.generation else { return address }
             // A reply is an acknowledgement; `audible_generation` catching up is the

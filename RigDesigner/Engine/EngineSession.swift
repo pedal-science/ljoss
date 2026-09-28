@@ -43,6 +43,12 @@ final class EngineSession {
     /// telemetry subscription to replace it with yet.
     private static let statusInterval = Duration.milliseconds(500)
 
+    /// The waits between tries while a connection is wanted: short at first, for a device
+    /// that is still starting or a permission just granted, then every 30 s.
+    private static let retryDelays: [Duration] = [
+        .seconds(1), .seconds(2), .seconds(5), .seconds(10), .seconds(30),
+    ]
+
     // MARK: State the UI reads
 
     private(set) var connection: Connection = .offline
@@ -59,6 +65,9 @@ final class EngineSession {
     private(set) var lastFailure: EngineFailure?
 
     private(set) var isSending = false
+
+    /// A connection is wanted and will be tried again: what a failure says is not final.
+    private(set) var isRetrying = false
 
     var settings: EngineSettings
 
@@ -96,6 +105,17 @@ final class EngineSession {
     /// Whole documents on their way. Whatever changes meanwhile is looked at when they land.
     @ObservationIgnored private var applying = 0
 
+    /// Whether the app should be connected: from `connect()` until the player's
+    /// `disconnect()`. While it is, a connection that fails or drops is tried again, so a
+    /// device that is still booting or restarts, or a permission granted after the first
+    /// try, needs nothing from the player.
+    @ObservationIgnored private var wantsConnection = false
+    @ObservationIgnored private var reconnect: Task<Void, Never>?
+    @ObservationIgnored private var attempts = 0
+
+    /// In the background nothing is polled, and nothing is retried either.
+    @ObservationIgnored private var paused = false
+
     init(settings: EngineSettings = EngineSettingsStore.load()) {
         self.settings = settings
     }
@@ -107,11 +127,14 @@ final class EngineSession {
             connection = .failed(missing)
             return
         }
+        wantsConnection = true
+        attempts = 0
         await open()
     }
 
     private func open() async {
-        disconnect()
+        reconnect?.cancel(); reconnect = nil
+        close()
         connection = .connecting
 
         let client = EngineClient(host: settings.host, port: settings.port, token: settings.token)
@@ -120,6 +143,8 @@ final class EngineSession {
         do {
             hello = try await client.connect()
             connection = .online
+            attempts = 0
+            if isRetrying { isRetrying = false }
             lastFailure = nil
             // The catalogue is small and static except for the library-backed
             // options, so one fetch per connection is the documented story.
@@ -137,12 +162,24 @@ final class EngineSession {
             // app owns the document, so the document wins.
             if let latest { await apply(latest) }
         } catch {
-            connection = .failed(describe(error))
-            self.client = nil
+            // A refusal, such as a wrong token or a protocol the device does not speak,
+            // will not change by itself. Anything else is the network or the device, and
+            // might.
+            lost(describe(error), on: client, retrying: !(error is EngineFailure))
         }
     }
 
+    /// The player's disconnect. Nothing reconnects until `connect()` is called again.
     func disconnect() {
+        wantsConnection = false
+        reconnect?.cancel(); reconnect = nil
+        if isRetrying { isRetrying = false }
+        close()
+        connection = .offline
+    }
+
+    /// Let go of the connection and everything that belonged to it.
+    private func close() {
         poller?.cancel(); poller = nil
         debounce?.cancel(); debounce = nil
         debounced = nil
@@ -153,21 +190,57 @@ final class EngineSession {
         let client = self.client
         self.client = nil
         Task { await client?.close() }
-        connection = .offline
         status = nil
         hello = nil
     }
 
-    /// Nothing is polled while the app is in the background; a device that went away
-    /// meanwhile is noticed on the next call rather than by a timer nobody watched.
+    /// The connection failed or went away. While one is wanted, it is tried again after a
+    /// wait. Only the current connection's failure counts: closing it fails whatever else
+    /// was waiting on it too, and those would otherwise replace the reason with their own.
+    private func lost(_ why: String, on client: EngineClient?, retrying: Bool = true) {
+        if let client, self.client !== client { return }
+        close()
+        connection = .failed(why)
+        if retrying {
+            scheduleReconnect()
+        } else {
+            wantsConnection = false
+            if isRetrying { isRetrying = false }
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard wantsConnection, !paused, reconnect == nil else { return }
+        let delay = Self.retryDelays[min(attempts, Self.retryDelays.count - 1)]
+        attempts += 1
+        if !isRetrying { isRetrying = true }
+        reconnect = Task { [weak self] in
+            try? await Task.sleep(for: delay)
+            guard !Task.isCancelled, let self else { return }
+            self.reconnect = nil
+            await self.open()
+        }
+    }
+
+    /// Nothing is polled or retried while the app is in the background. A device that went
+    /// away meanwhile is noticed on the next call rather than by a timer nobody watched,
+    /// and a connection still wanted is tried again as soon as the app is back.
     func pause() {
+        paused = true
         poller?.cancel()
         poller = nil
+        reconnect?.cancel()
+        reconnect = nil
     }
 
     func resume() {
-        guard connection.isOnline, poller == nil else { return }
-        startPolling()
+        paused = false
+        if connection.isOnline {
+            if poller == nil { startPolling() }
+        } else if wantsConnection, connection != .connecting {
+            attempts = 0
+            scheduleReconnect()
+        }
     }
 
     // MARK: - Sending
@@ -270,9 +343,7 @@ final class EngineSession {
                 resynchronise()
                 return
             } catch {
-                connection = .failed(describe(error))
-                poller?.cancel()
-                poller = nil
+                lost(describe(error), on: client)
                 return
             }
         }
@@ -369,7 +440,7 @@ final class EngineSession {
             // plan is untouched.
             lastFailure = failure
         } catch {
-            connection = .failed(describe(error))
+            lost(describe(error), on: client)
         }
     }
 
@@ -428,9 +499,7 @@ final class EngineSession {
             status = try await client.call(PlainRequest("engine.status"),
                                            expecting: StatusResponse.self).status
         } catch let error as EngineTransportError {
-            connection = .failed(error.message)
-            poller?.cancel()
-            poller = nil
+            lost(error.message, on: client)
         } catch {
             // A protocol-level refusal to a status call is odd but not fatal.
             lastFailure = error as? EngineFailure

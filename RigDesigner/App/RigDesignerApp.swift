@@ -19,8 +19,9 @@ struct RigDesignerApp: App {
                 .environment(engine)
                 .environment(assets)
                 .task {
-                    // A device that was set up before is reconnected on launch;
-                    // one that was not leaves the app exactly as it is today.
+                    // A device that was set up before is connected on launch, and
+                    // tried again until it answers (EngineSession); one that was not
+                    // leaves the app exactly as it is today.
                     if engine.settings.isComplete { await engine.connect() }
                 }
         }

@@ -24,6 +24,17 @@ actor EngineClient {
     /// short enough that a dead device is noticed rather than waited on.
     private static let replyTimeout = Duration.seconds(10)
 
+    /// What the system otherwise says only in its log, as "Local network prohibited":
+    /// this app has not been allowed onto the local network. The permission follows the
+    /// app's signing identity, so a differently signed build asks again.
+    #if os(macOS)
+    static let localNetworkDenied = "macOS is not letting Rig Designer reach the local network. "
+        + "Allow it in System Settings → Privacy & Security → Local Network."
+    #else
+    static let localNetworkDenied = "iOS is not letting Rig Designer reach the local network. "
+        + "Allow it in Settings → Privacy & Security → Local Network."
+    #endif
+
     private let host: String
     private let port: UInt16
     private let token: String
@@ -34,6 +45,10 @@ actor EngineClient {
     private var inbox = Data()
     private var pending: [String: Waiting] = [:]
     private var counter = 0
+
+    /// Why the connection ended, once it has. Every later call is told at once, rather
+    /// than sending into a closed socket and waiting out `replyTimeout` for an answer.
+    private var ended: EngineTransportError?
 
     private struct Waiting {
         var continuation: CheckedContinuation<Data, Error>
@@ -54,6 +69,7 @@ actor EngineClient {
     @discardableResult
     func connect() async throws -> EngineHello {
         close()
+        ended = nil
 
         guard let endpoint = NWEndpoint.Port(rawValue: port) else {
             throw EngineTransportError.unreachable("\(port) is not a port number.")
@@ -86,7 +102,9 @@ actor EngineClient {
     private func waitUntilReady(_ connection: NWConnection) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             let once = ResumeOnce(continuation)
-            connection.stateUpdateHandler = { state in
+            // Weak: the connection holds this handler, so a strong reference back to it
+            // would keep both alive after the connection is let go.
+            connection.stateUpdateHandler = { [weak connection] state in
                 switch state {
                 case .ready:
                     once.succeed(())
@@ -96,7 +114,11 @@ actor EngineClient {
                     // `.waiting` means the path is not viable and Network will keep
                     // retrying. For an appliance on the LAN, saying why now beats
                     // hanging until someone gives up.
-                    once.fail(.unreachable(error.localizedDescription))
+                    if connection?.currentPath?.unsatisfiedReason == .localNetworkDenied {
+                        once.fail(.unreachable(Self.localNetworkDenied))
+                    } else {
+                        once.fail(.unreachable(error.localizedDescription))
+                    }
                 case .cancelled:
                     once.fail(.closed)
                 default:
@@ -133,7 +155,7 @@ actor EngineClient {
     }
 
     private func transmit(_ framed: Data, waitingFor id: String) async throws -> Data {
-        guard let connection else { throw EngineTransportError.notConnected }
+        guard let connection else { throw ended ?? EngineTransportError.notConnected }
 
         return try await withCheckedThrowingContinuation { continuation in
             // Registered before the bytes leave, because the reply can come back
@@ -167,19 +189,32 @@ actor EngineClient {
         while !Task.isCancelled {
             do {
                 let (chunk, done) = try await receive(from: connection)
+                // A reader whose connection has since been replaced has nothing to say
+                // about the new one, and ending it would take the new one down too.
+                guard self.connection === connection else { return }
                 if let chunk, !chunk.isEmpty {
                     inbox.append(chunk)
                     try cutFrames()
                 }
                 if done {
-                    failEveryonePending(with: EngineTransportError.closed)
+                    end(.closed)
                     return
                 }
             } catch {
-                failEveryonePending(with: error)
+                guard self.connection === connection else { return }
+                end(error as? EngineTransportError ?? .closed)
                 return
             }
         }
+    }
+
+    /// The far end went away, or the stream can't be read any further. Whoever is
+    /// waiting is told now, and so is every call after this.
+    private func end(_ error: EngineTransportError) {
+        ended = error
+        connection?.cancel()
+        connection = nil
+        failEveryonePending(with: error)
     }
 
     private func receive(from connection: NWConnection) async throws -> (Data?, Bool) {

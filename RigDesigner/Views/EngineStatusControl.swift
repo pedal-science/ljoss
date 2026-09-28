@@ -36,7 +36,7 @@ struct EngineStatusControl: View {
         switch session.connection {
         case .offline: "No device connected"
         case .connecting: "Connecting…"
-        case .failed(let why): why
+        case .failed(let why): session.isRetrying ? "\(why) Trying again." : why
         case .online:
             if !session.refusals.isEmpty { "\(session.refusals.count) thing(s) this device cannot play" }
             else if session.isAdopting { "Crossfading into the new rig" }

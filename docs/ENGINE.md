@@ -235,6 +235,19 @@ There is no discovery — no mDNS, no Bonjour — so the host is typed in. There
 TLS either: the token travels in clear text, and off a trusted network the documented
 answer is a tunnel. There is no push, so `engine.status` is polled at 2 Hz.
 
+**The app connects by itself.** A device that has been set up is connected at launch
+and kept connected.
+- A failed or dropped connection is tried again after 1, 2, 5 and 10 s, then every
+  30 s, until the device answers or the player presses Disconnect.
+- A refusal, such as a wrong token, isn't retried, because it won't change by itself.
+- Nothing is retried while the app is in the background, and coming back tries again
+  at once.
+- When the device closes the connection, the client notices at the next poll, within
+  half a second, rather than when a reply times out 10 s later.
+
+Checked against a daemon started late, killed and restarted: online 0.6 s after it
+started, the loss noticed in 0.5 s, and online again 1.1 s after the restart.
+
 ## Layers
 
 ```
