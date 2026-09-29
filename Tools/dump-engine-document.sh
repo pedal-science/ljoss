@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Print the engine document for a named test rig, as the app would send it.
+# Print the engine document for a named test rig, or a rig the app saved (--file), as the app
+# would send it.
 #
 # Same source list as Tests/run-model-tests.sh: none of it needs SwiftUI, so this needs
 # nothing from Xcode beyond a toolchain. See Tools/DumpDocument.swift for why it exists.

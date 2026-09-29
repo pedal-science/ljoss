@@ -12,13 +12,23 @@ enum DumpDocument {
 
     static func main() throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
-        guard let name = arguments.first, let make = TestRigs.byName[name] else {
+
+        // `--file <path>` encodes a rig the app saved (`<id>.rig.json` in its library), so a
+        // session that was played on the device can be rebuilt from the rig it ended on.
+        let rig: Rig
+        if arguments.first == "--file", arguments.count >= 2 {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            rig = try decoder.decode(Rig.self, from: Data(contentsOf: URL(fileURLWithPath: arguments[1])))
+        } else if let name = arguments.first, let make = TestRigs.byName[name] {
+            rig = make()
+        } else {
             FileHandle.standardError.write(Data(
-                "usage: dump-engine-document <\(TestRigs.names)> [--bare]\n".utf8))
+                "usage: dump-engine-document <\(TestRigs.names)|--file rig.json> [--bare]\n".utf8))
             exit(2)
         }
 
-        let result = DocumentEncoder.encode(make())
+        let result = DocumentEncoder.encode(rig)
         for refusal in result.refusals {
             FileHandle.standardError.write(Data(
                 "refused: \(refusal.chain): \(refusal.message)\n".utf8))
