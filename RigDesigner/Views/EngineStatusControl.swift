@@ -96,7 +96,8 @@ enum EngineWords {
 
         case "compile_failed": "The device could not build this rig"
         case "patch_rejected": "The device refused that change"
-        case "asset_missing": "The device does not have that model"
+        // An issue per block (it plays as bypassed), or, for a block with no dry path, a refusal.
+        case "asset_missing": "The device does not have a block's model or IR"
         case "path_refused": "A file path was refused"
         case "unknown_chain": "The device does not have that chain"
         case "unauthorized": "The token was not accepted"

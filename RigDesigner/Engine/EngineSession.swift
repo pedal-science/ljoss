@@ -517,6 +517,13 @@ final class EngineSession {
 
     var issues: [EngineIssue] { status?.issues ?? [] }
 
+    /// Why a block plays as bypassed on the device: its model or IR isn't there. Nil
+    /// offline, and for every block the device has what it needs for.
+    func missingAsset(for block: UUID) -> EngineIssue? {
+        guard connection.isOnline else { return nil }
+        return status?.missingAsset(element: block)
+    }
+
     /// True while the device is still crossfading into what was last sent.
     var isAdopting: Bool { status.map { !$0.isAdopted } ?? false }
 

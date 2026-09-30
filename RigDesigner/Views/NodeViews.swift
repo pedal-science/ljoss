@@ -15,6 +15,14 @@ struct NodeTile: View {
 
     private var spec: ComponentSpec { Catalogue.resolve(block.componentID) }
     private var isUnplayable: Bool { session?.canPlay(block.componentID) == false }
+    /// The device doesn't have this block's model or IR, so it plays the block as if
+    /// bypassed. Shown as not configured: a marker, a dashed outline, and what's missing.
+    private var missing: EngineIssue? { session?.missingAsset(for: block.id) }
+    private var missingText: String {
+        missing?.kind == "ir" ? "IR not on device" : "Model not on device"
+    }
+    /// How loud the tile looks: a missing file sounds like a bypass, so it looks like one.
+    private var isSounding: Bool { block.isEnabled && missing == nil }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -23,6 +31,11 @@ struct NodeTile: View {
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundStyle(block.isEnabled ? spec.category.accent : .secondary)
                 Spacer(minLength: 0)
+                if missing != nil {
+                    Image(systemName: "questionmark.folder")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(.orange)
+                }
                 if isUnplayable {
                     Image(systemName: "waveform.slash")
                         .font(.system(size: 12, weight: .bold))
@@ -43,30 +56,32 @@ struct NodeTile: View {
                 .multilineTextAlignment(.leading)
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text(spec.category.displayName)
+            Text(missing != nil ? missingText : spec.category.displayName)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(missing != nil ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
         }
         .padding(12)
         .frame(width: Metrics.nodeWidth, height: Metrics.nodeHeight, alignment: .leading)
         .background {
             RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous)
-                .fill(spec.category.accent.opacity(block.isEnabled ? 0.18 : 0.07))
+                .fill(spec.category.accent.opacity(isSounding ? 0.18 : 0.07))
         }
         .overlay {
             RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous)
                 .strokeBorder(
-                    isSelected ? spec.category.accent : spec.category.accent.opacity(0.35),
-                    lineWidth: isSelected ? 3 : 1.5
+                    missing != nil ? Color.orange : (isSelected ? spec.category.accent : spec.category.accent.opacity(0.35)),
+                    style: StrokeStyle(lineWidth: isSelected ? 3 : 1.5, dash: missing != nil ? [6, 4] : [])
                 )
         }
-        .opacity(block.isEnabled ? 1 : 0.55)
+        .opacity(isSounding ? 1 : 0.55)
         .contentShape(RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous))
         .shadow(color: .black.opacity(isGhost ? 0.32 : 0), radius: isGhost ? 18 : 0, y: isGhost ? 10 : 0)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(spec.name))
-        .accessibilityHint(Text(isUnplayable
+        .accessibilityHint(Text(missing != nil
+                                ? "\(missingText): plays as bypassed"
+                                : isUnplayable
                                 ? "Not available on the connected device"
                                 : (block.isEnabled ? "Enabled" : "Bypassed, and still running")))
     }

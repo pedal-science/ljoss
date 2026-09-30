@@ -114,6 +114,22 @@ func testResponseDecoding() {
     check(failure?.error?.message.contains("did you mean") == true,
           "…keeping the engine's own words, which name the near miss")
 
+    // A block whose file isn't in the library plays as bypassed, and the issue says which
+    // block by the UUID the encoder sent as its element.
+    let block = UUID()
+    let stoodIn = Data("""
+    { "state": "running", "health": "warn",
+      "issues": [ { "code": "asset_missing", "severity": "warn", "count": 1,
+                    "message": "node 'x-amp' plays as if bypassed: no model 'tweed/delux'",
+                    "chain": "c", "node": "x-amp", "element": "\(block.uuidString)",
+                    "param": "model", "kind": "model", "reference": "tweed/delux" } ] }
+    """.utf8)
+    let bypassed = try? EngineCoding.decoder.decode(EngineStatus.self, from: stoodIn)
+    check(bypassed?.missingAsset(element: block)?.reference == "tweed/delux",
+          "a missing asset is found by the block's UUID")
+    check(bypassed?.missingAsset(element: block)?.kind == "model", "…and says what kind of file")
+    check(bypassed?.missingAsset(element: UUID()) == nil, "another block isn't missing anything")
+
     let assets = Data("""
     { "ok": true, "models": [ { "id": "tweed/deluxe", "name": "deluxe", "group": "tweed",
                                 "sample_rate": 48000.0, "architecture": "WaveNet" } ],

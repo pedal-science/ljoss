@@ -162,6 +162,14 @@ struct EngineIssue: Decodable, Sendable, Hashable, Identifiable {
     var count: Int?
     var chain: String?
     var node: String?
+    /// The client's own id for the block the issue is about — a block's UUID, as the
+    /// encoder sends it. Set on `asset_missing`, which is per block.
+    var element: String?
+    /// `asset_missing`: the parameter that named the file (`model`, `ir`), which kind
+    /// of file it is (`model`, `ir`) and the reference as the rig wrote it.
+    var param: String?
+    var kind: String?
+    var reference: String?
 
     var id: String { "\(code)|\(chain ?? "")|\(node ?? "")" }
 }
@@ -218,6 +226,14 @@ struct EngineStatus: Decodable, Sendable, Hashable {
     var isAdopted: Bool {
         guard let generation, let audibleGeneration else { return false }
         return generation == audibleGeneration && transitionActive != true
+    }
+
+    /// The block's `asset_missing` issue, if its model or IR isn't in the device's
+    /// library. The engine plays such a block as if bypassed rather than refusing the
+    /// rig, so this is how the canvas knows to show it as not configured.
+    func missingAsset(element: UUID) -> EngineIssue? {
+        let key = element.uuidString
+        return issues?.first { $0.code == "asset_missing" && $0.element == key }
     }
 }
 

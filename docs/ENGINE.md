@@ -153,6 +153,15 @@ channel count is caught before sending, naming both numbers. Clamping both chain
 onto channel 0 was the alternative and is worse: it would feed the guitar's signal
 into the vocal chain, visibly working and audibly wrong.
 
+**A block whose file the device lacks plays as bypassed.** When a model or IR a block names
+isn't in the device's library, namchain doesn't refuse the rig: it plays that block as if
+bypassed and reports an `asset_missing` issue carrying the block's UUID as `element`
+(namchain docs/assets.md). The canvas shows the block as not configured (a folder marker, an
+orange dashed outline, "Model not on device" or "IR not on device") and faded like a bypassed
+block, because that's what it sounds like. The rig itself is untouched: pick a model the device
+has, or copy the file into its library, and the block plays. The lookup is
+`EngineStatus.missingAsset(element:)`, so it's covered by the wire tests.
+
 **Engine state is never rig data.** Connection, health, generation and the schema
 live in `EngineSession`, beside `RigLibrary` and never inside a `Rig`. Writing a
 generation into the document would mark every rig modified and thrash the 400 ms
