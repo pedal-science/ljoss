@@ -83,7 +83,7 @@ enum CheckStreaming {
         let probe = EngineClient(host: host, port: port, token: token)
 
         do {
-            _ = try await probe.connect()
+            let hello = try await probe.connect()
 
             // The rig goes as a whole document once it has been still for the debounce.
             var rig = TestRigs.streaming()
@@ -137,7 +137,10 @@ enum CheckStreaming {
                 && band.map { abs($0 - 6) < 1e-9 } == true
                 && mix.map { abs($0 - 0.6) < 1e-9 } == true
 
-            // A bypass is still structural, so it still rebuilds: once.
+            // A bypass goes as the whole document. An engine with `bypass_ramp` sees that
+            // only the flag moved and crossfades the block in the plan it is playing, so it
+            // rebuilds nothing; an older one rebuilds once.
+            let bypassRamps = hello.has("bypass_ramp")
             if case .block(var block) = rig.chains[0].elements[0] {
                 block.isEnabled = false
                 rig.chains[0].elements[0] = .block(block)
@@ -146,13 +149,16 @@ enum CheckStreaming {
             try await Task.sleep(for: .milliseconds(700))
             let bypassed = try await counters(probe)
             let bypassRebuilds = (bypassed.transitionsStarted ?? 0) - (after.transitionsStarted ?? 0)
-            say("bypass     \(bypassRebuilds) rebuild(s)")
+            say("bypass     \(bypassRebuilds) rebuild(s)" + (bypassRamps ? " (the engine ramps a bypass)" : ""))
 
             var failures: [String] = []
             if rebuilds != 0 { failures.append("the drag rebuilt \(rebuilds) time(s)") }
             if ramps < steps / 2 { failures.append("only \(ramps) ramps reached the engine") }
             if !landed { failures.append("the engine's document did not end at the final values") }
-            if bypassRebuilds != 1 { failures.append("the bypass rebuilt \(bypassRebuilds) time(s), not once") }
+            let expected = bypassRamps ? 0 : 1
+            if bypassRebuilds != expected {
+                failures.append("the bypass rebuilt \(bypassRebuilds) time(s), not \(expected)")
+            }
             if let failure = session.lastFailure { failures.append("the engine refused: \(failure.message)") }
             if failures.isEmpty {
                 say("OK")

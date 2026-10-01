@@ -16,6 +16,11 @@ import Foundation
 // tone knob reaches the tone stack through a transform, and a block's bypass is on
 // every node it lowers to. Whatever this cannot show to be a ramp is structural.
 //
+// A bypass goes as the whole document too, and still doesn't rebuild: an engine with
+// `bypass_ramp` compares the document node by node, sees that only the flag moved, and
+// crossfades the block in the plan it is playing. Sending it as a patch op instead would
+// save bytes, not work.
+//
 // No SwiftUI and no Network here: this file is in the source list of
 // `Tests/run-model-tests.sh`.
 
