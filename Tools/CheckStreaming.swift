@@ -67,7 +67,10 @@ enum CheckStreaming {
     static func main() async {
         let arguments = Array(CommandLine.arguments.dropFirst())
         guard arguments.count == 3, let port = UInt16(arguments[1]),
-              let token = try? String(contentsOfFile: arguments[2], encoding: .utf8)
+              // FileHandle, not String(contentsOfFile:), which can't open a pipe such as
+              // <(ssh host cat token): the token need never be written to a file.
+              let data = FileHandle(forReadingAtPath: arguments[2])?.readDataToEndOfFile(),
+              let token = String(data: data, encoding: .utf8)?
                   .trimmingCharacters(in: .whitespacesAndNewlines) else {
             FileHandle.standardError.write(Data("usage: check-streaming HOST PORT TOKEN-FILE\n".utf8))
             exit(2)

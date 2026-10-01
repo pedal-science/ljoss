@@ -4,6 +4,9 @@
 #
 # usage: check-streaming.sh [HOST [PORT [TOKEN-FILE]]]
 #
+# TOKEN-FILE may be a pipe, so a token never touches the disk:
+#   check-streaming.sh vip 47810 <(ssh vip sudo -n cat /etc/namchain/token)
+#
 # Any daemon will do. On a Mac, namchain's tools/macos/run-namchaind.sh is one (it needs
 # listen.sh running, and you will hear the test); a daemon on `--backend null` is a paced
 # clock with nothing to listen to.
@@ -16,7 +19,8 @@ host="${1:-127.0.0.1}"
 port="${2:-47810}"
 token_file="${3:-/tmp/nc/token}"
 
-[[ -s "$token_file" ]] || { echo "no token at $token_file" >&2; exit 2; }
+# -r, not -s: a pipe such as <(ssh host cat token) has no size.
+[[ -r "$token_file" ]] || { echo "no token at $token_file" >&2; exit 2; }
 
 sources=(
   "$root"/RigDesigner/Model/*.swift
