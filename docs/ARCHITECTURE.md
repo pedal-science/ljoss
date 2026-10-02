@@ -14,7 +14,8 @@ reaches a namchain device.
 App/          Scene, and the split-view / stack shell
 Views/        Canvas, node tiles, palette tray, inspector, library, settings, design tokens
 DragEngine/   Drag state, frame registry, hit testing, slot mapping, the gesture
-Engine/       The namchain client: block mapping, the encoder, framing, the session
+Engine/       The namchain client: block mapping, the encoder, framing, the session,
+              and the local engine this app can run itself
 Assets/       The local model and IR library: folders, scanning, sniffing, ordering
 Model/        The rig tree, addressing, and the edit algorithms
 Store/        Persistence and starter content
@@ -29,6 +30,11 @@ expensive, so it has to be cheap to assert.
 
 `Engine/` sits above `Model/` and `Catalogue/` and below `Views/`. It reads a rig
 and never writes one — see [ENGINE.md](ENGINE.md).
+
+The local engine's decisions are split along that same line deliberately:
+`Engine/LocalEnginePlan.swift` resolves paths and builds the daemon's command line and is in
+the fast test set, while `Engine/LocalEngine.swift` does nothing but spawn a process and watch
+it. See [ENGINE.md](ENGINE.md#the-local-engine).
 
 `Assets/` is the odd one: it uses `AssetKind` from `Engine/BlockMapping.swift`, because
 a model and an impulse response are one idea and two enums for it would drift. The five

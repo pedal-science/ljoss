@@ -214,6 +214,57 @@ comparison can't show to be a ramp is treated as structural.
 Not done yet: a bypass that ramps, which needs the engine to fade a node to its dry
 input without a rebuild, and an edit history.
 
+## The local engine
+
+Settings → Hardware offers the other way round as well: **Connect to this computer**, which runs a
+`namchaind` as a child of this app and points the session at it. It is a development and audition
+aid, not a deployment: namchain's `docs/daemon.md` §"The CoreAudio backend" owns what the daemon
+promises, and this section owns only what the app does about it.
+
+The daemon is given `--backend coreaudio`, a loopback TCP listener with a token the app generates,
+its own `models/`, `irs/` and `rigs/` under Application Support, and **either** a live input device
+(`--input-device`, the UID of one of the Mac's own devices) **or** a WAV to loop (`--capture-path`).
+The model folder is the user's own when the library has one with a model in it — a folder that holds
+nothing is skipped rather than chosen, so an empty first root cannot shadow a full second one.
+
+- **Live input is the point, and the file is the fallback.** Picking an input device is what makes a
+  guitar audible through the Mac; picking *None* loops a WAV instead, which is what the mode is for on
+  a machine with no interface attached (and what the parked work did before the daemon could capture).
+  The input device is chosen by UID, for the same reason the daemon takes a UID: it survives a replug
+  and a change of default. Reading a device is the one thing here that makes macOS ask for microphone
+  permission, and the grant belongs to **this app**, because it is what spawns the daemon — hence
+  `NSMicrophoneUsageDescription` and `com.apple.security.device.audio-input` in `project.yml`. A
+  refused microphone is *silence*, not an error, so this is worth knowing before debugging the sound.
+- **The device fields are disabled and they are the *stored device*.** While the mode is on, the
+  session's own settings are `127.0.0.1` and the daemon's generated token, so showing
+  `session.settings` in the Host, Port and Token fields would both mislead and invite the Save button
+  to write the loopback address and a local secret over the board's configuration — which is exactly
+  what the mode promises not to do. They show `EngineSettingsStore`'s copy instead, disabled, and both
+  "Connect" buttons go with them. Turning the switch off puts the stored device back into the session.
+- **The daemon is started *instead of* connecting to a device, never after.** At launch the app reads
+  the remembered choice first: this Mac, or the board. Doing it the other way round spends the launch
+  connected to nothing — try the device, fail, start the daemon, and leave the session behind the
+  failure it just showed.
+- **The child exiting tells the session, so the two panels cannot disagree.** The session retries a
+  lost connection every 30 s for ever, which is right for a board that will come back and wrong for a
+  daemon that has already exited: without this, "Could not Connect … Trying again" would sit under a
+  switch that says "Could not start", both permanently true and neither useful.
+- **A child process, not a LaunchAgent.** A LaunchAgent survives quitting the app, needs an installer
+  to remove, and "so I can test without a real board" is not a thing that should outlive the test. The
+  child is stopped in `applicationWillTerminate`, which is the one hook SwiftUI does not offer:
+  `scenePhase` reaches `.background` when the app is hidden and never reaches a terminated state.
+- **`LocalEngine` is a singleton**, because the constraints are physical: one daemon per port, one
+  audio device held, one child to reap. It is also what lets the termination hook stop the engine
+  without having been handed one.
+- **An adopted daemon is a success, not a conflict.** If the port already answers a real handshake the
+  app uses that process instead of starting a second one, which would fail with "address already in
+  use" and read as the app being broken when the thing the user wanted is right there.
+- **The child gets the parent's environment minus the `DYLD_*` variables.** Xcode injects
+  `DYLD_INSERT_LIBRARIES=@executable_path/__preview.dylib` into an app it launches; the child inherits
+  it by default and dyld kills it before `main` because there is no `__preview.dylib` beside *its*
+  executable. The symptom is the local engine failing only while the app is run from Xcode, which is
+  where it is being tested. `LocalEnginePlan.childEnvironment` is the fix and the test is the record.
+
 ## The transport
 
 TCP, default port 47810, off on the device unless an operator turns it on. Every
@@ -269,11 +320,17 @@ Engine/EngineFraming.swift     the length prefix
 Engine/EngineClient.swift      an actor over NWConnection
 Engine/EngineSettings.swift    host, port, and the token in the keychain
 Engine/EngineSession.swift     connection, streamed ramps, debounced documents, status polling
+Engine/LocalEnginePlan.swift   the local engine's decisions: paths, refusals, the command line
+Engine/LocalEngine.swift       the local engine's child process
+Views/CoreAudioDevices.swift   the Mac's own devices, for the settings page that picks two
 ```
 
 The first six have **no SwiftUI and no Network**, which is what puts them in
-`run-model-tests.sh` alongside `Model/`. Adding either import to one of them breaks
-the fast test path, the same discipline `Model/` already keeps.
+`run-model-tests.sh` alongside `Model/`. `EngineSettings.swift` (the keychain) and
+`LocalEnginePlan.swift` (the filesystem) are in that set too — neither SwiftUI, neither a socket —
+while `EngineClient.swift` and `EngineSession.swift` are not, and `LocalEngine.swift` cannot be: it
+spawns a process and watches it. Adding SwiftUI or Network to one of the six breaks the fast test
+path, the same discipline `Model/` already keeps.
 
 Every response type is deliberately partial and every field optional: the daemon's
 own rule is that responses are supersets, so a client that ignores what it does not
@@ -281,7 +338,7 @@ know keeps working across a protocol change.
 
 ## Verified, and not
 
-`./Tests/run-model-tests.sh` — 255 assertions. The engine's share covers:
+`./Tests/run-model-tests.sh` — 328 assertions. The engine's share covers:
 - the split/mix shape and the dry lane;
 - chain-to-channel binding, and a hidden chain still being sent;
 - bypass on every node of a block;
@@ -296,6 +353,21 @@ know keeps working across a protocol change.
 
 The assets' share — the sniff, the brand table, the scan and the ordering — is the
 newest; [ASSETS.md](ASSETS.md) says what each of them exists to catch.
+
+The local engine's share is in the same set: the command line it hands the daemon in **both** forms
+(live input, and a WAV), the ways it refuses what it cannot run, the token rules, the environment
+sanitising, and which of the user's folders becomes the daemon's model library. **It has also been
+run end to end on a Mac** (2026-10-02): with the toggle on, launching the app started
+`namchaind --backend coreaudio --input-device <the SSL 2+> --capture-channels 2 …` as its child,
+`engine.status` reported `coreaudio`, running, the device's measured 512-frame period, 2 capture
+channels, 6 playback, 0 xruns and `live_input: 1`, and the daemon published the app's rig
+(generation 1) — so the session had handshaken and the document had arrived. Quitting the app stopped
+the child. The WAV-loop form was run the same way (`live_input: 0`, `loop_wraps: 4`, so the file was
+being consumed). What that does **not** cover: a run where Xcode's `DYLD_INSERT_LIBRARIES` is
+genuinely present (the sanitising is asserted in `Tests/LocalEngineTests.swift`; the
+launched-from-Xcode case was not reproducible from a shell), and the microphone prompt itself — the
+grant was already in place where this was tested, so the refused-microphone path (which is silence
+rather than an error) was not exercised.
 
 **A knob streams.** `Tools/check-streaming.sh` drives a daemon through `EngineSession`
 itself. Run against namchain `abe1f34` on macOS (`--backend null`), it turned a Gain, a

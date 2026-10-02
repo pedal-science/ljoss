@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- "Connect to this computer" starts namchaind as a child of this app, and a live audio input
+	     is what macOS asks for microphone permission for. TCC grants it to the *responsible*
+	     process, which for a child spawned here is this app, and the hardened runtime refuses an
+	     input device to a process that does not carry this entitlement. Without both the capture is
+	     silence rather than an error. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>
