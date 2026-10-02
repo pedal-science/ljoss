@@ -237,6 +237,19 @@ struct HardwareSettingsView: View {
                     .textFieldStyle(.plain)
                     .multilineTextAlignment(.trailing)
             }
+            LabeledContent("Device buffer") {
+                Picker("Device buffer", selection: bufferBinding) {
+                    ForEach(Self.bufferChoices, id: \.self) { frames in
+                        Text("\(frames) frames · \(Self.milliseconds(frames)) ms").tag(frames)
+                    }
+                    // A value that was set by hand, or stored by an older build: kept so the picker
+                    // shows what is actually in force rather than silently choosing something else.
+                    if !Self.bufferChoices.contains(local.deviceBufferFrames) {
+                        Text("\(local.deviceBufferFrames) frames").tag(local.deviceBufferFrames)
+                    }
+                }
+                .labelsHidden()
+            }
             HStack(spacing: 10) {
                 Button("Refresh Devices", action: refreshDevices)
                 Spacer()
@@ -246,9 +259,12 @@ struct HardwareSettingsView: View {
             Text("Engine")
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                Text("Changes here are used the next time the engine starts — turn the switch off and on "
-                     + "to restart it. The period is a ceiling: the daemon measures the device's own period "
-                     + "and runs at that.")
+                Text("The device buffer is what the daemon asks the interface for, and it is most of the "
+                     + "latency you feel: 32 frames is under a millisecond, 512 is eleven. The daemon puts "
+                     + "the device's previous value back when it stops. The period ceiling is a limit on "
+                     + "the plan, not a request — the Audio row below shows the period the device actually "
+                     + "gave. The binary, port and ceiling are used the next time the engine starts; turn "
+                     + "the switch off and on to restart it.")
                 if let log = engine.logURL {
                     Text("The daemon's output is at \(log.path)")
                         .textSelection(.enabled)
@@ -312,6 +328,25 @@ struct HardwareSettingsView: View {
                     var updated = local
                     updated.tcpPort = value
                     apply(updated, restarting: false)
+                })
+    }
+
+    /// rief The buffer sizes worth offering. 32 is the default and the point of the exercise (0.67
+    /// ms at 48 kHz); 15 is the SSL 2+ Mk II's floor and is not offered because a period that short
+    /// leaves almost nothing for the engine to work in; the larger values are there for an interface
+    /// that will not go lower, and 0 means "leave my device alone".
+    private static let bufferChoices: [UInt16] = [0, 32, 64, 128, 256, 512]
+
+    private static func milliseconds(_ frames: UInt16) -> String {
+        String(format: "%.2f", Double(frames) / 48.0)
+    }
+
+    private var bufferBinding: Binding<UInt16> {
+        Binding(get: { local.deviceBufferFrames },
+                set: { frames in
+                    var updated = local
+                    updated.deviceBufferFrames = frames
+                    apply(updated, restarting: true)
                 })
     }
 

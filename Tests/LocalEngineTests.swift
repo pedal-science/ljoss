@@ -47,6 +47,21 @@ func testLocalEngineSettingsRoundTrip() {
     let data = try! JSONEncoder().encode(settings)
     let back = try! JSONDecoder().decode(LocalEngineSettings.self, from: data)
     check(back == settings, "every field survives a round trip through the preferences")
+
+    // And a *stored* file written before a field existed still loads, keeping what it does have: the
+    // synthesised decoder would throw on the missing key, and the store would answer with the default
+    // settings -- switching the mode off and forgetting the device on the first launch after an
+    // upgrade. The two fields the new build added are the ones that must fall back.
+    let older = """
+    {"wantsLocal":true,"inputDeviceUID":"SSL2Plus","inputDeviceName":"SSL 2+ Mk II",
+     "outputDeviceUID":"SSL2Plus","loopFilePath":"","token":"0123456789abcdef0123456789abcdef",
+     "tcpPort":47810,"periodSize":1024,"engineRootPath":""}
+    """
+    let loaded = try? JSONDecoder().decode(LocalEngineSettings.self, from: Data(older.utf8))
+    check(loaded?.wantsLocal == true, "a stored file from an older build still asks for the local engine")
+    check(loaded?.inputDeviceUID == "SSL2Plus", "…and still names the device it was pointed at")
+    check(loaded?.deviceBufferFrames == LocalEngineSettings().deviceBufferFrames,
+          "…and takes the default for a key that build did not write")
     check(back.inputDeviceName == "SSL 2+ Mk II",
           "…including the name kept beside the UID, which is what a row shows when CoreAudio is not asked")
 }
@@ -249,12 +264,22 @@ func testLocalEngineArguments() {
           "…with the token the app will present")
     check(arguments.contains("--no-lock-memory"),
           "memory locking is off: a helper that cannot pin pages must still start")
-    check(value(of: "--rt-priority", in: arguments) == "0",
-          "real-time priority is off too, for the same reason")
+    check(value(of: "--rt-priority", in: arguments) == String(LocalEngineSettings().realtimePriority),
+          "…and real-time scheduling is asked for, which is what makes a 32-frame period survivable")
+    check(value(of: "--device-buffer-frames", in: arguments) == "32",
+          "…with the device asked for 32 frames, where most of the monitoring latency lives")
     check(!arguments.contains("--device"),
           "no device flag means the system's default output device")
     check(arguments.contains("--verbose"),
           "the daemon's own account of what it did goes to the log")
+
+    // ...and a device buffer of 0 means "leave my interface as it is", which is not the same request
+    // as any particular number: the flag is absent rather than sent as a zero.
+    var leaveItAlone = looped
+    leaveItAlone.deviceBufferFrames = 0
+    let untouched = try? LocalEnginePlan.make(settings: leaveItAlone, modelsRoot: nil, token: "")
+    check(untouched.map { !$0.arguments.contains("--device-buffer-frames") } == true,
+          "a device buffer of 0 asks for nothing rather than for zero frames")
 
     // The directories it is given are the ones a rig's model would be found in.
     check(value(of: "--models-root", in: arguments) == plan.modelsRoot.path,

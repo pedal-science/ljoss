@@ -44,9 +44,51 @@ struct LocalEngineSettings: Codable, Equatable, Sendable {
     /// The ceiling the daemon compiles its plan for (a ceiling: the backend measures the device's
     /// own period, which is what the engine then runs at).
     var periodSize: UInt16 = 1024
+    /// \brief The audio device's own IO buffer, in frames, to ask it for.
+    ///
+    /// This is where most of the monitoring latency lives: at 48 kHz, 512 frames is 10.67 ms in each
+    /// direction, and a USB interface will take a great deal less (the SSL 2+ Mk II's range starts at
+    /// 15). 32 frames is 0.67 ms, which is what makes playing through this feel immediate rather than
+    /// delayed — and it is only safe because the daemon now asks macOS for a real-time window sized to
+    /// that period. The daemon puts the device's previous value back when it stops, so choosing this in
+    /// ljoss does not leave Logic configured for 32 frames.
+    var deviceBufferFrames: UInt16 = 32
+    /// The real-time priority the daemon asks for. On macOS this number is not used: any value above
+    /// zero asks for a `SCHED_FIFO` policy plus a time-constraint window sized to the audio period,
+    /// which needs no privilege. Linux would read it as a `SCHED_FIFO` priority and need root, but the
+    /// daemon this app starts is a macOS one.
+    var realtimePriority: UInt8 = 60
     /// Where the daemon's `models/`, `irs/` and `rigs/` live. Empty means the standard application
     /// support location.
     var engineRootPath: String = ""
+}
+
+extension LocalEngineSettings {
+
+    /// \brief Decoding is deliberately lenient, and this is not tidiness.
+    ///
+    /// These settings are *stored*: a key that an older build did not write is not an error, it is a
+    /// setting that had a different name or did not exist. Synthesised `Codable` throws on the missing
+    /// key instead, and the store's `try?` turns that into the default settings — which would silently
+    /// throw away the device the user chose and switch the mode off, on the first launch after an
+    /// upgrade that added a field. So every field takes its own default and only the keys that are
+    /// present are read.
+    init(from decoder: Decoder) throws {
+        self.init()
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        wantsLocal = try container.decodeIfPresent(Bool.self, forKey: .wantsLocal) ?? wantsLocal
+        launcherPath = try container.decodeIfPresent(String.self, forKey: .launcherPath) ?? launcherPath
+        inputDeviceUID = try container.decodeIfPresent(String.self, forKey: .inputDeviceUID) ?? inputDeviceUID
+        inputDeviceName = try container.decodeIfPresent(String.self, forKey: .inputDeviceName) ?? inputDeviceName
+        outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID) ?? outputDeviceUID
+        loopFilePath = try container.decodeIfPresent(String.self, forKey: .loopFilePath) ?? loopFilePath
+        token = try container.decodeIfPresent(String.self, forKey: .token) ?? token
+        tcpPort = try container.decodeIfPresent(UInt16.self, forKey: .tcpPort) ?? tcpPort
+        periodSize = try container.decodeIfPresent(UInt16.self, forKey: .periodSize) ?? periodSize
+        deviceBufferFrames = try container.decodeIfPresent(UInt16.self, forKey: .deviceBufferFrames) ?? deviceBufferFrames
+        realtimePriority = try container.decodeIfPresent(UInt8.self, forKey: .realtimePriority) ?? realtimePriority
+        engineRootPath = try container.decodeIfPresent(String.self, forKey: .engineRootPath) ?? engineRootPath
+    }
 }
 
 // MARK: - What it resolves to
@@ -65,6 +107,10 @@ struct LocalEnginePlan: Equatable, Sendable {
     var loopFile: URL?
     var tcpPort: UInt16
     var periodSize: UInt16
+    /// The device's own IO buffer to ask for, in frames; 0 means "leave the device as it is".
+    var deviceBufferFrames: UInt16
+    /// The real-time priority to ask the daemon for; 0 means "do not ask".
+    var realtimePriority: UInt8
     /// The CoreAudio input device to capture from. Empty means `loopFile` is the signal.
     var inputDeviceUID: String
     /// The CoreAudio output device, or empty for the system's default.
@@ -151,6 +197,8 @@ struct LocalEnginePlan: Equatable, Sendable {
                                loopFile: loop,
                                tcpPort: settings.tcpPort,
                                periodSize: settings.periodSize,
+                               deviceBufferFrames: settings.deviceBufferFrames,
+                               realtimePriority: settings.realtimePriority,
                                inputDeviceUID: input,
                                outputDeviceUID: settings.outputDeviceUID
                                    .trimmingCharacters(in: .whitespaces),
@@ -297,13 +345,23 @@ struct LocalEnginePlan: Equatable, Sendable {
             "--tcp-address", "127.0.0.1",
             "--tcp-port", String(tcpPort),
             "--tcp-token", token,
-            // The daemon is a helper of this app, not an appliance: it must not fight the app for
-            // the interface or fail to start because a page could not be pinned. Both are reported
-            // by `engine.status` if anyone asks.
+            // The daemon is a helper of this app, not an appliance: memory locking is off, because
+            // failing to start over a page that could not be pinned is not a trade worth making here.
             "--no-lock-memory",
-            "--rt-priority", "0",
+            // ...but real-time scheduling is asked for, and that is what makes a 32-frame period
+            // survivable. On macOS no privilege is needed: the daemon sets `SCHED_FIFO` and a
+            // time-constraint window sized to the audio period. Reported back through
+            // `engine.status.realtime` and `render_degraded`, so a refusal is visible rather than
+            // guessed at.
+            "--rt-priority", String(realtimePriority),
             "--verbose",
         ]
+        // Only when a buffer was chosen: 0 means the device keeps whatever it has, which is the honest
+        // way to say "do not touch my interface" and is what somebody with an interface already set up
+        // the way they like it would choose.
+        if deviceBufferFrames > 0 {
+            arguments += ["--device-buffer-frames", String(deviceBufferFrames)]
+        }
         // Only when one was chosen: empty means the system's default output device, which is what
         // the daemon does with an absent `--device`.
         if !outputDeviceUID.isEmpty {

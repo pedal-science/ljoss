@@ -227,6 +227,23 @@ its own `models/`, `irs/` and `rigs/` under Application Support, and **either** 
 The model folder is the user's own when the library has one with a model in it — a folder that holds
 nothing is skipped rather than chosen, so an empty first root cannot shadow a full second one.
 
+Two of the arguments are about latency, and they are the difference between playing through this and
+waiting for it:
+
+- **`--device-buffer-frames 32` is the latency knob.** The device's own IO buffer is most of the delay
+  a player feels — 512 frames is 10.67 ms at 48 kHz, and 32 is 0.67 ms — so the app asks for 32 and
+  Settings → Hardware offers 0 (leave my interface alone), 32, 64, 128, 256 and 512. The daemon puts
+  the device's previous value back when it stops, so this does not leave Logic configured for 32
+  frames, and it reports what the device actually took in `backend_diagnostics.device_buffer_frames`
+  — a device that clamps to 512 must not be described as running at 32.
+- **`--rt-priority 60` asks for real-time scheduling, and macOS grants it without privilege.** A
+  period that short is only survivable if the render thread is not scheduled as ordinary work, which
+  is why the app no longer sends `--rt-priority 0`. `engine.status.realtime` and `render_degraded`
+  report what was achieved, so a refusal is visible rather than guessed at.
+
+The *measured* period is on the Hardware page's Audio row: `--period-size 1024` is a ceiling on the
+plan, not a request, so the number shown there is the one the device gave.
+
 - **Live input is the point, and the file is the fallback.** Picking an input device is what makes a
   guitar audible through the Mac; picking *None* loops a WAV instead, which is what the mode is for on
   a machine with no interface attached (and what the parked work did before the daemon could capture).
