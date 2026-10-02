@@ -363,11 +363,21 @@ run end to end on a Mac** (2026-10-02): with the toggle on, launching the app st
 channels, 6 playback, 0 xruns and `live_input: 1`, and the daemon published the app's rig
 (generation 1) — so the session had handshaken and the document had arrived. Quitting the app stopped
 the child. The WAV-loop form was run the same way (`live_input: 0`, `loop_wraps: 4`, so the file was
-being consumed). What that does **not** cover: a run where Xcode's `DYLD_INSERT_LIBRARIES` is
-genuinely present (the sanitising is asserted in `Tests/LocalEngineTests.swift`; the
-launched-from-Xcode case was not reproducible from a shell), and the microphone prompt itself — the
-grant was already in place where this was tested, so the refused-microphone path (which is silence
-rather than an error) was not exercised.
+being consumed). **The capture carries signal rather than the silence a refused microphone would
+give**: three seconds recorded from the built-in microphone through the daemon (`namchainctl record
+start`) is 143,872 samples at peak 0.10 and RMS 0.015, every one of them non-zero, while the playback
+file is correctly all zeros with no document loaded. Adoption was exercised too — a daemon already
+listening with the stored token was used instead of a second one being started (the app spawned no
+child), the rig still reached the engine, and quitting the app left that daemon running, which is what
+"it was not started by this app" means.
+
+What that does **not** cover: a run where Xcode's `DYLD_INSERT_LIBRARIES` is genuinely present (the
+sanitising is asserted in `Tests/LocalEngineTests.swift`; the launched-from-Xcode case was not
+reproducible from a shell); the microphone **prompt**, because the grant was already in place where
+this was tested, so the refused-microphone path (silence rather than an error) was not exercised; and
+a recording of the *app's own* child's capture — the daemon's `record_dir` default is a Linux path and
+the app does not override it, so for the app the evidence is that its input device opens, the stream
+runs with 0 xruns, and the entitlement and usage description above are what it carries.
 
 **A knob streams.** `Tools/check-streaming.sh` drives a daemon through `EngineSession`
 itself. Run against namchain `abe1f34` on macOS (`--backend null`), it turned a Gain, a
