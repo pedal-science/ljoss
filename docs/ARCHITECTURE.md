@@ -11,14 +11,14 @@ reaches a namchain device.
 ## Layers
 
 ```
-App/          Scene, and the split-view / stack shell
+App/          Scene, the split-view / stack shell, and the File menu's export
 Views/        Canvas, node tiles, palette tray, inspector, library, settings, design tokens
 DragEngine/   Drag state, frame registry, hit testing, slot mapping, the gesture
 Engine/       The namchain client: block mapping, the encoder, framing, the session,
               and the local engine this app can run itself
 Assets/       The local model and IR library: folders, scanning, sniffing, ordering
 Model/        The rig tree, addressing, and the edit algorithms
-Store/        Persistence and starter content
+Store/        Persistence, starter content, and the export's two documents and zip
 Catalogue/    The 102 effect blocks and their parameters
 ```
 
@@ -180,6 +180,14 @@ saved rigs.
 **Codable is synthesised.** Swift derives it for the recursive enum, and the
 round trip is asserted in the tests.
 
+**How a rig is spelled as JSON is one thing, in one place**
+(`Store/RigJSON.swift`). The library's own save and the export both write a rig
+file, and the export's `ljoss.json` has to be byte for byte what the library
+would write — two encoders configured alike would drift the first time one of
+them gained a setting, and a file that still loaded but was not the same file
+would not say so. The export's layout and its rules are in
+[EXPORT.md](EXPORT.md).
+
 ## Layout switching is grow-only
 
 `Rig.chains` may hold more chains than the current layout displays;
@@ -301,9 +309,17 @@ regression is silent rather than a crash:
 ```
 
 It compiles `Model/`, `Catalogue/`, the slot mapping, the flow geometry, the
-SwiftUI-free half of `Engine/` and the SwiftUI-free half of `Assets/` with `swiftc` and
-runs the assertions. No test host, no scheme, about five seconds. None of those sources
-depend on SwiftUI, so this needs nothing from Xcode beyond a toolchain.
+SwiftUI-free half of `Engine/`, the SwiftUI-free half of `Assets/`, and the export — the
+zip format, the two documents, the selection and the controller that asks for a place to
+put them — with `swiftc` and runs the assertions. No test host, no scheme, about five
+seconds. None of those sources depend on SwiftUI, so this needs nothing from Xcode beyond
+a toolchain.
+
+**`-plugin-path` is spelled out in the script.** The macro behind `@Observable` is an
+external macro, and a frontend not told where its plugin lives shells out to
+`swift-plugin-server`; where that server cannot run, the compiler reports "could not be
+found for macro 'Observable()'", which reads like a bad source file and is not. The path
+is resolved from the active toolchain, so a different Xcode needs no edit.
 
 The asset assertions are the newest and the most load-bearing of the cheap ones. A scan
 that re-reads the whole library every time still works, and an ordering that reshuffles

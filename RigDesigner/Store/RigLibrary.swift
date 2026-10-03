@@ -8,7 +8,7 @@ import Observation
 /// and delete become single file operations.
 @MainActor
 @Observable
-final class RigLibrary {
+final class RigLibrary: RigProviding {
 
     private(set) var rigs: [Rig] = []
     /// Set when a load or save fails, so the UI can say so rather than fail silently.
@@ -36,18 +36,8 @@ final class RigLibrary {
         load()
     }
 
-    private static let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        e.dateEncodingStrategy = .iso8601
-        return e
-    }()
-
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
+    // The spelling of a rig file lives in `RigJSON`, not here, because the export writes one
+    // too and the two must agree. See `Store/RigJSON.swift`.
 
     private func url(for id: UUID) -> URL {
         directory.appending(path: "\(id.uuidString).rig.json")
@@ -66,7 +56,7 @@ final class RigLibrary {
             var loaded: [Rig] = []
             for file in files {
                 guard let data = try? Data(contentsOf: file),
-                      var rig = try? Self.decoder.decode(Rig.self, from: data) else { continue }
+                      var rig = try? RigJSON.decode(data) else { continue }
                 rig.normalize()          // tolerate anything hand-edited or written by an older build
                 loaded.append(rig)
             }
@@ -198,7 +188,7 @@ final class RigLibrary {
     private func writeNow(_ rig: Rig) {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let data = try Self.encoder.encode(rig)
+            let data = try RigJSON.encode(rig)
             // .atomic keeps a half-written file from ever replacing a good one.
             try data.write(to: url(for: rig.id), options: .atomic)
             lastError = nil

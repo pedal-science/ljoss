@@ -11,8 +11,12 @@ import SwiftUI
 struct ContentView: View {
     @Environment(RigLibrary.self) private var library
     @Environment(EngineSession.self) private var engine
+    @Environment(ExportController.self) private var exporter
 
-    @State private var selection: UUID?
+    /// Which rig is current. Owned by the App, because the File menu's export has to see
+    /// the same one — see `RigSelection`.
+    let selection: RigSelection
+
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingSettings = false
     /// The area the detail shows. Defaults to the first one, which is what settings opens
@@ -37,17 +41,41 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            if selection == nil { selection = library.rigs.first?.id }
+            if selection.current == nil { selection.current = library.rigs.first?.id }
+        }
+        // The export is a menu item, but its failure still has to be somewhere the user is
+        // looking — a rig that would not lower, or a folder that would not be written.
+        .alert("Export Failed", isPresented: showingExportFailure) {
+            Button("OK", role: .cancel) { exporter.lastError = nil }
+        } message: {
+            Text(exporter.lastError ?? "")
         }
     }
 
+    private var showingExportFailure: Binding<Bool> {
+        Binding(
+            get: { exporter.lastError != nil },
+            set: { if !$0 { exporter.lastError = nil } }
+        )
+    }
+
     // MARK: - Rigs
+
+    /// The list's selection, as a binding.
+    ///
+    /// Spelled out because `$selection.current` needs `selection` to be `@State` or
+    /// `@Bindable` in this view, and it is neither: the App owns it, so that the File menu's
+    /// export reads the same value (`RigSelection`). Writing through this reaches that one
+    /// store, which is the point.
+    private var currentRig: Binding<UUID?> {
+        Binding(get: { selection.current }, set: { selection.current = $0 })
+    }
 
     private var rigShell: some View {
         Group {
             if useSplitView {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
-                    RigLibraryView(selection: $selection)
+                    RigLibraryView(selection: currentRig)
                         .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 380)
                 } detail: {
                     detail
@@ -55,9 +83,9 @@ struct ContentView: View {
                 .navigationSplitViewStyle(.balanced)
             } else {
                 NavigationStack {
-                    RigLibraryView(selection: $selection)
+                    RigLibraryView(selection: currentRig)
                         .settingsToolbarItem(isOpen: false) { openSettings() }
-                        .navigationDestination(item: $selection) { id in
+                        .navigationDestination(item: currentRig) { id in
                             editor(for: id)
                         }
                 }
@@ -72,8 +100,8 @@ struct ContentView: View {
     private var detail: some View {
         NavigationStack {
             Group {
-                if let selection, library.rig(id: selection) != nil {
-                    editor(for: selection)
+                if let id = selection.current, library.rig(id: id) != nil {
+                    editor(for: id)
                 } else {
                     ContentUnavailableView(
                         "No Rig Selected",

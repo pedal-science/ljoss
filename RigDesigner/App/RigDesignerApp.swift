@@ -7,7 +7,13 @@ struct RigDesignerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
 
-    @State private var library = RigLibrary()
+    @State private var library: RigLibrary
+    /// Which rig is on screen. Owned here rather than inside `ContentView` because the
+    /// File menu's export needs it too — see `RigSelection`.
+    @State private var selection: RigSelection
+    /// The File menu's export and how it reports itself, handed to both the window (for the
+    /// error) and the commands (for the menu item).
+    @State private var exporter: ExportController
     /// Engine state is not rig data: it lives here, beside the library, and never
     /// inside a `Rig`. Writing a generation or a health into the document would
     /// mark every rig modified and thrash the library's autosave.
@@ -21,10 +27,23 @@ struct RigDesignerApp: App {
     @State private var assets = AssetLibrary()
     @Environment(\.scenePhase) private var scenePhase
 
+    /// The library, the selection and the exporter are made here rather than with default
+    /// values on the properties, because they are one object graph: the exporter is the
+    /// selection, and a second `RigSelection` inside the exporter would leave the menu
+    /// looking at an empty one while the window showed a rig.
+    init() {
+        let library = RigLibrary()
+        let selection = RigSelection()
+        _library = State(initialValue: library)
+        _selection = State(initialValue: selection)
+        _exporter = State(initialValue: ExportController(selection: selection))
+    }
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            ContentView(selection: selection)
                 .environment(library)
+                .environment(exporter)
                 .environment(engine)
                 .environment(localEngine)
                 .environment(assets)
@@ -62,6 +81,9 @@ struct RigDesignerApp: App {
         }
         #if os(macOS)
         .defaultSize(width: 1180, height: 820)
+        .commands {
+            ExportRigCommands(controller: exporter, library: library)
+        }
         #endif
     }
 
