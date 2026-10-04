@@ -32,8 +32,15 @@ struct HardwareSettingsView: View {
     @State private var local = LocalEngineStore.load()
     /// The Mac's devices, read when the page appears and when the mode is switched on. Held rather
     /// than read in `body`: each read is a HAL round trip, and a view body is not the place for one.
+    ///
+    /// Behind `os(macOS)` because the type exists only there: `CoreAudioDevices.swift` is the HAL's
+    /// device list, and iOS has neither that enumeration nor a `namchaind` to hand it to. These two
+    /// declarations, not CoreAudio itself, were the whole of the iOS build's failure — the page's
+    /// iOS half stubs the pickers below and never reads either list.
+    #if os(macOS)
     @State private var inputs: [CoreAudioDevice] = []
     @State private var outputs: [CoreAudioDevice] = []
+    #endif
     /// The two file pickers. Separate booleans rather than one with a mode, because a picker's own
     /// parameters must not change while it is open: sharing one importer between the WAV and the
     /// binary made SwiftUI treat it as a different importer and drop the chosen file (the parked
