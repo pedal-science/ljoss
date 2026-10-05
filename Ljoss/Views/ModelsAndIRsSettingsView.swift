@@ -73,7 +73,19 @@ struct ModelsAndIRsSettingsView: View {
                 add(result)
             }
             ScrollView {
-                results
+                // Laid out lazily, because a real library is thousands of rows and building
+                // all of them to draw the first screenful is what made this page slow to
+                // open: with a `VStack` every row here is constructed — text, icon, tooltip
+                // and all — before anything appears, and a library with 1600 captures costs
+                // a second of that. A `LazyVStack` constructs the rows in view and the ones
+                // just outside it, and the rest as they are scrolled to.
+                //
+                // The sections themselves are still all worked out: that is a sort over
+                // values, tens of milliseconds for a library this size, and it is what the
+                // headings and the order come from.
+                LazyVStack {
+                    results
+                }
             }
         }.padding()
     }
