@@ -145,6 +145,235 @@ func testResponseDecoding() {
     check(empty?.list(for: .model).isEmpty == true, "an empty library is empty, not nil")
 }
 
+func testLevelDecoding() {
+    // A real reply, from the pedal with a guitar plugged in and nothing played: about -60 dBFS
+    // on the input, one output channel silent because nothing is routed to it, and four nodes
+    // of which two share an element (a macro lowered into primitives).
+    let block = UUID()
+    let json = """
+    { "ok": true, "levels": {
+        "state": "running", "blocks": 2039, "sample_rate": 48000, "period_size": 64,
+        "truncated": false,
+        "input":  { "peak": [-61.5, -75.3], "rms": [-72.0, -84.0], "clipped": [0, 0] },
+        "output": { "peak": [-49.5, -200.0], "rms": [-60.0, -200.0], "clipped": [0, 0] },
+        "chains": [ { "id": "c1", "name": "Guitar", "output_channel": 0, "muted": false,
+                      "out": { "peak": -49.5, "rms": -60.0, "frames": 4224, "clipped": 0 },
+                      "nodes": [
+                        { "node": "in", "element": "\(block.uuidString)", "role": "",
+                          "peak": -61.5, "rms": -72.0, "frames": 4224 },
+                        { "node": "cab:low", "element": "\(block.uuidString)", "role": "low",
+                          "peak": -70.0, "rms": -80.0, "frames": 4224 },
+                        { "node": "cab:level", "element": "\(block.uuidString)", "role": "level",
+                          "peak": -55.0, "rms": -68.0, "frames": 4224 },
+                        { "node": "orphan", "element": "not-a-uuid", "role": "",
+                          "peak": -200.0, "rms": -200.0, "frames": 0 } ] } ],
+        "an_unknown_field": 12 } }
+    """
+    guard let levels = try? EngineCoding.decoder.decode(LevelsResponse.self, from: body(json)).levels else {
+        check(false, "a levels response decodes at all")
+        return
+    }
+    check(levels.state == "running" && levels.blocks == 2039, "the levels reply carries its state")
+    check(levels.sampleRate == 48000 && levels.periodSize == 64, "…and the device's clock")
+    check(levels.input?.maxPeak == -61.5, "the input's loudest channel is the loudest channel")
+    check(levels.input?.rms?.count == 2 && levels.output?.clipped?.count == 2,
+          "every direction reports per channel")
+    check(levels.hasSignal, "signal on the input is signal")
+    check(levels.truncated == false, "an unknown field alongside is ignored")
+
+    // The block's level is its loudest node: a macro's primitives are in series, so the end of
+    // the part that matters is the one to show.
+    let chain = levels.chains?.first
+    check(chain?.name == "Guitar" && chain?.id == "c1", "the chain carries its document identity")
+    check(chain?.level(forElement: block)?.peak == -55.0,
+          "a block's level is the loudest node that shares its element")
+    check(chain?.level(forElement: block)?.hasSignal == true, "…and it has samples behind it")
+    check(chain?.level(forElement: UUID()) == nil, "a block the device is not running has no level")
+
+    // A window that measured nothing is not silence, and the two must not be confused: this is
+    // the bug that had the diagnostic tool reporting a quiet guitar as a dead input.
+    let empty = """
+    { "state": "running", "blocks": 2040,
+      "input":  { "peak": [-200.0], "rms": [-200.0], "clipped": [0] },
+      "output": { "peak": [-200.0], "rms": [-200.0], "clipped": [0] },
+      "chains": [ { "id": "c1", "out": { "peak": -200.0, "frames": 0 },
+                    "nodes": [ { "node": "in", "element": "e", "peak": -200.0, "frames": 0 } ] } ] }
+    """
+    let blankData = body("{\"levels\": \(empty)}")
+    guard let blank = try? EngineCoding.decoder.decode(LevelsResponse.self, from: blankData).levels else {
+        let why: String
+        do { _ = try EngineCoding.decoder.decode(LevelsResponse.self, from: blankData); why = "decoded but levels was nil" }
+        catch { why = "\(error)" }
+        check(false, "an empty window decodes too: \(why)")
+        return
+    }
+    check(!blank.hasSignal, "an empty window is not signal")
+    check(!(blank.chains?.first?.level(forElement: block)?.hasSignal ?? false),
+          "…and a node with no frames has no level to show")
+
+    // The read-and-reset rule: an empty window inherits the last one that was not, while the
+    // counters and the state stay fresh. Without this a meter would flicker to the floor every
+    // time anything else asked the engine a question.
+    let merged = EngineLevels.combining(previous: levels, fresh: blank)
+    check(merged.blocks == 2040, "a merged window keeps the fresh counters")
+    check(merged.hasSignal, "…and does not lose the signal it is holding")
+    check(merged.chains?.first?.out?.frames == 4224, "the held chain output is the last good one")
+    check(merged.chains?.first?.nodes?.first?.frames == 4224, "…and so are its nodes")
+
+    // And a fresh window always wins over a held one.
+    check(EngineLevels.combining(previous: blank, fresh: levels).blocks == 2039,
+          "a window with samples replaces what was held")
+}
+
+func testMeterBallistics() {
+    // What a bar is drawn from. The claim these pin is that a meter shows what a player can read:
+    // a peak that jumps instantly, falls slowly, and does not flicker to silence because a window
+    // happened to be empty.
+    let t0 = Date(timeIntervalSinceReferenceDate: 1000)
+
+    var meter = MeterBallistics()
+    check(!meter.isAudible, "a meter that has been given nothing shows nothing")
+
+    meter.update(-12.0, now: t0)
+    check(meter.peak == -12.0 && meter.isAudible, "the first reading is the level")
+
+    // A louder peak takes over at once: an instant attack is what makes a transient visible.
+    meter.update(-3.0, now: t0.addingTimeInterval(0.05))
+    check(meter.peak == -3.0, "a louder peak shows at once")
+
+    // A quieter reading does not drag the bar down with it; the bar keeps releasing at its own
+    // rate. A tenth of a second at 24 dB/s is 2.4 dB, so the answer is -5.4, not the -30 that just
+    // arrived.
+    meter.update(-30.0, now: t0.addingTimeInterval(0.15))
+    check(abs(meter.peak - (-5.4)) < 0.001,
+          "a quieter reading leaves the bar to release (got \(meter.peak))")
+
+    // And the release is a rate over real time, so a longer gap falls further — which is what keeps
+    // the meter's motion the same whatever the poll rate is.
+    meter.update(-30.0, now: t0.addingTimeInterval(0.65))
+    check(abs(meter.peak - (-17.4)) < 0.01,
+          "the bar falls at the release rate (got \(meter.peak))")
+
+    // An empty window — the engine's probes are read and reset, so this is what arrives whenever
+    // anything else asks the engine a question — releases rather than resetting.
+    let held = meter.peak
+    meter.update(nil, now: t0.addingTimeInterval(0.75))
+    check(meter.peak < held, "an empty window falls, it does not jump")
+    check(meter.peak > held - 10, "…and it falls by the release, not to the floor")
+
+    // Left alone it reaches the floor and stops there, and a meter at the floor has nothing to
+    // show: a bar drawn for it would claim a signal that is not there.
+    meter.update(nil, now: t0.addingTimeInterval(30))
+    check(meter.peak == MeterScale.floor, "a meter left alone reaches the floor")
+    check(!meter.isAudible, "…and says it has nothing to show")
+
+    // The engine's own floor is silence, not a very quiet signal: a channel nothing is routed to
+    // arrives as -200 and must not draw a bar.
+    var silent = MeterBallistics()
+    silent.update(-200.0, now: t0)
+    check(!silent.isAudible && silent.peak == MeterScale.floor,
+          "the engine's floor is silence, not a level")
+
+    // The scale: the floor at the left, full scale at the right, -18 dBFS where a digital meter's
+    // nominal sits.
+    check(MeterScale.fraction(nil) == 0, "no reading is no bar")
+    check(MeterScale.fraction(MeterScale.floor) == 0, "the floor is the left-hand end")
+    check(MeterScale.fraction(0) == 1, "full scale is the right-hand end")
+    check(MeterScale.fraction(-200) == 0, "below the floor is still the left-hand end")
+    check(MeterScale.fraction(6) == 1, "past full scale cannot overflow the bar")
+    check(abs(MeterScale.fraction(-35) - 0.5) < 0.001, "halfway in dB is halfway along the bar")
+
+    // The thresholds, which are the colours a player actually reads.
+    check(!MeterScale.isHot(-18.1) && MeterScale.isHot(-6) && MeterScale.isHot(0),
+          "hot starts at -6 dBFS")
+    check(MeterScale.isClipping(-0.05) && !MeterScale.isClipping(-1),
+          "clipping is at the encode's own clamp, not near it")
+    check(MeterScale.colour(-40) == .green, "a healthy level is green")
+    check(MeterScale.colour(-10) == .yellow, "above nominal is yellow")
+    check(MeterScale.colour(-3) == .orange, "into the headroom it is orange")
+    check(MeterScale.colour(0) == .red, "at full scale it is red")
+}
+
+/// `MeterReader` is `@MainActor` because the views that read it are. `main.swift` is top-level
+/// code, which is already on the main actor, so the annotation here is the whole difference.
+@MainActor
+func testMeterReader() {
+    // The reader folds the engine's reply into per-channel bars and per-block bars, and it is
+    // where the "loudest node of an element" rule lives.
+    let t0 = Date(timeIntervalSinceReferenceDate: 2000)
+    let reader = MeterReader()
+    let block = UUID()
+
+    let json = """
+    { "ok": true, "levels": {
+        "state": "running", "blocks": 10,
+        "input":  { "peak": [-61.5, -75.3], "rms": [-72.0, -84.0], "clipped": [0, 0] },
+        "output": { "peak": [-49.5, -200.0], "rms": [-60.0, -200.0], "clipped": [0, 1] },
+        "chains": [ { "id": "c1", "out": { "peak": -49.5, "frames": 64 },
+                      "nodes": [
+                        { "node": "cab:low", "element": "\(block.uuidString)", "role": "low",
+                          "peak": -70.0, "frames": 64 },
+                        { "node": "cab:level", "element": "\(block.uuidString)", "role": "level",
+                          "peak": -55.0, "frames": 64 },
+                        { "node": "quiet", "element": "\(UUID().uuidString)", "role": "",
+                          "peak": -200.0, "frames": 0 } ] } ] } }
+    """
+    let readerLevels: EngineLevels
+    do {
+        guard let decoded = try EngineCoding.decoder.decode(LevelsResponse.self, from: body(json)).levels else {
+            check(false, "the reader's fixture decodes (levels was nil)")
+            return
+        }
+        readerLevels = decoded
+    } catch {
+        check(false, "the reader's fixture decodes: \(error)")
+        return
+    }
+    let levels = readerLevels
+
+    reader.tick(levels, now: t0)
+    check(reader.channels(for: .input).count == 2 && reader.channels(for: .output).count == 2,
+          "a bar per device channel, both directions")
+    check(reader.channels(for: .input).first! == -61.5,
+          "the input bar is the ADC's level (got \(String(describing: reader.channels(for: .input))))")
+    check(reader.block(block) == -55.0, "a block's bar is its loudest node, not its last")
+    check(reader.chain("c1") == -49.5, "a chain's bar is the chain's own output")
+    check(reader.block(UUID()) == nil, "a block the device is not running has no bar")
+
+    // A channel at the engine's floor has no bar at all, because "no level to show" is a different
+    // statement from "-60 dB": the engine quotes digital silence as -200, and a bar drawn for it
+    // would claim a signal that is not there.
+    let silentBar: Double? = reader.channels(for: .output).last ?? nil
+    check(silentBar == nil, "a channel nothing is routed to shows no bar")
+    check(MeterScale.fraction(silentBar) == 0, "…so its width is zero")
+    check(reader.clipped, "the encode's own clamp latches")
+    check(reader.clippingChannels.contains(1), "…and says which channel clipped")
+    reader.clearClip()
+    check(!reader.clipped && reader.clippingChannels.isEmpty, "the player can clear it")
+
+    // A window that measured nothing holds what was shown: the engine reads and resets, so an
+    // empty reply is a reading of nothing rather than silence.
+    let empty = """
+    { "ok": true, "levels": {
+        "state": "running", "blocks": 11,
+        "input":  { "peak": [-200.0, -200.0], "rms": [-200.0, -200.0], "clipped": [0, 0] },
+        "output": { "peak": [-200.0, -200.0], "rms": [-200.0, -200.0], "clipped": [0, 0] },
+        "chains": [] } }
+    """
+    guard let blank = try? EngineCoding.decoder.decode(LevelsResponse.self, from: body(empty)).levels else {
+        check(false, "an empty window decodes")
+        return
+    }
+    // Half a second later, as the poller's own clock would be: the release is a rate over real
+    // time, so the gap is the whole of the answer.
+    let before = reader.block(block)
+    reader.tick(blank, now: t0.addingTimeInterval(0.5))
+    let fell = (before ?? MeterScale.floor) - (reader.block(block) ?? MeterScale.floor)
+    check(fell > 0, "an empty window releases the block's bar")
+    check(abs(fell - MeterScale.releaseDbPerSecond * 0.5) < 1.0,
+          "…by the release rate over the time that passed (fell \(fell) dB)")
+}
+
 func testRequestEncoding() {
     print("what goes out on the wire")
 

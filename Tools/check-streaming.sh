@@ -23,19 +23,19 @@ token_file="${3:-/tmp/nc/token}"
 [[ -r "$token_file" ]] || { echo "no token at $token_file" >&2; exit 2; }
 
 sources=(
-  "$root"/RigDesigner/Model/*.swift
-  "$root"/RigDesigner/Store/RigFactory.swift
-  "$root"/RigDesigner/Catalogue/Catalogue.swift
-  "$root"/RigDesigner/Catalogue/CatalogueData.swift
-  "$root"/RigDesigner/Engine/EngineDocument.swift
-  "$root"/RigDesigner/Engine/BlockMapping.swift
-  "$root"/RigDesigner/Engine/DocumentEncoder.swift
-  "$root"/RigDesigner/Engine/EngineProtocol.swift
-  "$root"/RigDesigner/Engine/EngineFraming.swift
-  "$root"/RigDesigner/Engine/EngineEdits.swift
-  "$root"/RigDesigner/Engine/EngineClient.swift
-  "$root"/RigDesigner/Engine/EngineSettings.swift
-  "$root"/RigDesigner/Engine/EngineSession.swift
+  "$root"/Ljoss/Model/*.swift
+  "$root"/Ljoss/Store/RigFactory.swift
+  "$root"/Ljoss/Catalogue/Catalogue.swift
+  "$root"/Ljoss/Catalogue/CatalogueData.swift
+  "$root"/Ljoss/Engine/EngineDocument.swift
+  "$root"/Ljoss/Engine/BlockMapping.swift
+  "$root"/Ljoss/Engine/DocumentEncoder.swift
+  "$root"/Ljoss/Engine/EngineProtocol.swift
+  "$root"/Ljoss/Engine/EngineFraming.swift
+  "$root"/Ljoss/Engine/EngineEdits.swift
+  "$root"/Ljoss/Engine/EngineClient.swift
+  "$root"/Ljoss/Engine/EngineSettings.swift
+  "$root"/Ljoss/Engine/EngineSession.swift
   "$root"/Tools/TestRigs.swift
   "$root"/Tools/CheckStreaming.swift
 )

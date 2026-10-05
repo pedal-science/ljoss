@@ -1,5 +1,41 @@
 import SwiftUI
 
+/// Supplies the meters with the session's levels and one shared clock.
+///
+/// A view modifier rather than an environment object of its own: the meters are read by tiles
+/// that already have the session, and a second observable to inject would be one more thing to
+/// forget in a preview.
+struct MeterReaderProvider: ViewModifier {
+    @Environment(EngineSession.self) private var session: EngineSession?
+    @State private var reader = MeterReader()
+
+    func body(content: Content) -> some View {
+        content
+            .environment(reader)
+            .task(id: tickIdentity) {
+                // The tiles read `reader`, which is updated on the same cadence the levels model
+                // polls at. Driving it from a task rather than from the levels poll keeps the
+                // decay off the poller's critical path — and means a meter whose view is not on
+                // screen costs nothing but the shared poll.
+                while !Task.isCancelled {
+                    reader.tick(session?.levels.levels)
+                    try? await Task.sleep(for: .milliseconds(50))
+                }
+            }
+    }
+
+    /// Restarting the tick loop when the connection changes means a reconnect picks up fresh
+    /// levels rather than decaying the old ones forever.
+    private var tickIdentity: String {
+        "\(session?.levels.hasReading ?? false)-\(session?.connection.isOnline ?? false)"
+    }
+}
+
+extension View {
+    /// Give this subtree the meters' readings. Apply once, around the rig canvas.
+    func meterReadings() -> some View { modifier(MeterReaderProvider()) }
+}
+
 // MARK: - Node tile
 
 /// One effect block on the canvas. This is the primary drag handle, which is
@@ -12,6 +48,8 @@ struct NodeTile: View {
     /// Optional so the tile still renders with no device set up, and in a preview.
     /// `canPlay` is nil while offline: "unknown" is not "unavailable".
     @Environment(EngineSession.self) private var session: EngineSession?
+    /// The shared level readings. Present only inside a canvas that has `meterReadings()`.
+    @Environment(MeterReader.self) private var meters: MeterReader?
 
     private var spec: ComponentSpec { Catalogue.resolve(block.componentID) }
     private var isUnplayable: Bool { session?.canPlay(block.componentID) == false }
@@ -60,6 +98,13 @@ struct NodeTile: View {
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(missing != nil ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                 .lineLimit(1)
+
+            // What this block is passing, right now. Only while it is in the signal path: a
+            // bypassed block still runs but its output is not what the next node reads, so a bar
+            // there would show a level that is not in the signal.
+            if isSounding, let db = meters?.block(block.id) {
+                LevelBar(db: db, height: 5)
+            }
         }
         .padding(12)
         .frame(width: Metrics.nodeWidth, height: Metrics.nodeHeight, alignment: .leading)
@@ -96,7 +141,25 @@ struct EndpointTile: View {
     let source: SourceKind
     var isSelected: Bool = false
 
+    @Environment(MeterReader.self) private var meters: MeterReader?
+
     private var title: String { kind == .input ? "Input" : "Output" }
+
+    /// \brief The device's own levels for this end, one bar per channel.
+    ///
+    /// The Input cap and the Output cap are the two places where a level is not "this block's" but
+    /// the converter's: the ADC's before any routing, the DAC's after every chain has summed. Those
+    /// are the numbers that answer "is anything arriving" and "is it too hot", which are the two
+    /// questions a player with a silent or a nasty-sounding pedal asks first. Nil when the engine
+    /// has no levels to give (an older engine, or nothing measured yet), which is why the tile
+    /// shows nothing rather than a bar at the floor.
+    private var side: MeterSide { kind == .input ? .input : .output }
+    private var channels: [Double?] { meters?.channels(for: side) ?? [] }
+
+    private var isClipping: Bool {
+        guard let meters, kind == .output else { return false }
+        return meters.clipped
+    }
     private var symbol: String {
         switch kind {
         case .input: source == .vocal ? "music.mic" : "cable.connector"
@@ -114,6 +177,19 @@ struct EndpointTile: View {
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
+
+            if !channels.isEmpty {
+                VStack(spacing: 3) {
+                    LevelBars(values: channels, height: 7)
+                    if isClipping {
+                        Text("CLIP")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(.red)
+                            .transition(.opacity)
+                    }
+                }
+                .padding(.top, 2)
+            }
         }
         .padding(10)
         .frame(width: Metrics.ioWidth, height: Metrics.nodeHeight)
@@ -128,6 +204,7 @@ struct EndpointTile: View {
         .contentShape(RoundedRectangle(cornerRadius: Metrics.nodeCorner, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text("\(title), \(source.displayName)"))
+        .accessibilityValue(Text(kind == .output && isClipping ? "clipping" : ""))
     }
 }
 

@@ -29,50 +29,54 @@ struct ModelsAndIRsSettingsView: View {
     }
 
     var body: some View {
-        Form {
-            folders
-            if let complaint { complaintRow(complaint) }
-            if let error = assets.lastError { complaintRow(error) }
-
-            Section {
-                Picker("Group by", selection: $groupBy) {
-                    ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+        VStack {
+            Form {
+                folders
+                if let complaint { complaintRow(complaint) }
+                if let error = assets.lastError { complaintRow(error) }
+                
+                Section {
+                    Picker("Group by", selection: $groupBy) {
+                        ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                    Picker("Then by", selection: $groupThenBy) {
+                        ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                } header: {
+                    Text("Group")
+                } footer: {
+                    Text("A second level equal to the first adds nothing, and None is one list.")
                 }
-                Picker("Then by", selection: $groupThenBy) {
-                    ForEach(AssetGroupKey.allCases) { key in Text(key.displayName).tag(key) }
+                
+                Section {
+                    Picker("Sort by", selection: $sortBy) {
+                        ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                    Picker("Then by", selection: $sortThenBy) {
+                        ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
+                    }
+                } header: {
+                    Text("Sort")
+                } footer: {
+                    Text("Names read A–Z and dates read newest first. Unknown is always last.")
                 }
-            } header: {
-                Text("Group")
-            } footer: {
-                Text("A second level equal to the first adds nothing, and None is one list.")
+                
+                Section {
+                    ScanStatusRow(state: assets.state, unavailableFolders: assets.issues.count)
+                }
+                
             }
-
-            Section {
-                Picker("Sort by", selection: $sortBy) {
-                    ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
-                }
-                Picker("Then by", selection: $sortThenBy) {
-                    ForEach(AssetSortKey.allCases) { key in Text(key.displayName).tag(key) }
-                }
-            } header: {
-                Text("Sort")
-            } footer: {
-                Text("Names read A–Z and dates read newest first. Unknown is always last.")
+            .formStyle(.grouped)
+            .fileImporter(isPresented: $showingImporter,
+                          allowedContentTypes: [.folder],
+                          allowsMultipleSelection: true) { result in
+                add(result)
             }
-
-            Section {
-                ScanStatusRow(state: assets.state, unavailableFolders: assets.issues.count)
+                          .onAppear { assets.scanIfNeeded() }
+            ScrollView {
+                results
             }
-
-            results
-        }
-        .formStyle(.grouped)
-        .fileImporter(isPresented: $showingImporter,
-                      allowedContentTypes: [.folder],
-                      allowsMultipleSelection: true) { result in
-            add(result)
-        }
-        .onAppear { assets.scanIfNeeded() }
+        }.padding()
     }
 
     // MARK: - Folders

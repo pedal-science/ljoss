@@ -1,4 +1,4 @@
-# Rig Designer
+# Ljoss
 
 A signal-chain designer for guitar, bass and vocal rigs — the kind of routing
 you'd build on a HeadRush Core, Quad Cortex or Helix Stadium. SwiftUI, one
@@ -19,14 +19,14 @@ The Xcode project is generated from `project.yml` and is not committed:
 
 ```bash
 xcodegen generate
-open RigDesigner.xcodeproj
+open Ljoss.xcodeproj
 ```
 
 Or from the command line:
 
 ```bash
-xcodebuild -project RigDesigner.xcodeproj -scheme RigDesigner -destination 'platform=macOS' build
-xcodebuild -project RigDesigner.xcodeproj -scheme RigDesigner -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
+xcodebuild -project Ljoss.xcodeproj -scheme Ljoss -destination 'platform=macOS' build
+xcodebuild -project Ljoss.xcodeproj -scheme Ljoss -destination 'platform=iOS Simulator,name=iPhone 17 Pro' build
 ```
 
 ## Test
@@ -78,18 +78,18 @@ bugs.
 
 | Path | What lives there |
 | --- | --- |
-| `RigDesigner/Model/` | The rig tree, addressing, and the insert/move/remove/normalise algorithms. No SwiftUI. |
-| `RigDesigner/DragEngine/` | Drag state, the frame registry and hit testing, the render-slot mapping, wrapped-row geometry, auto-scroll, and the gesture. |
-| `RigDesigner/Views/` | Canvas, node tiles, palette tray, inspector, rig library, the settings areas and their pages, and the sizing and colour tokens. |
-| `RigDesigner/Store/` | Rig persistence (one JSON file per rig) and the starter rigs. |
-| `RigDesigner/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. No SwiftUI. |
-| `RigDesigner/Engine/` | The namchain client. The wire types, the block mapping, the tree-to-graph encoder, the protocol types and the framing have no SwiftUI and no Network, so they compile into the test runner; the client, settings and session sit above them. |
-| `RigDesigner/Assets/` | The user's own models and impulse responses: the configured folders, the bounded sniff of a `.nam` or `.wav`, the brand table, the scan and its ordering, and the store above them. The five lower files have no SwiftUI, so they compile into the test runner. |
+| `Ljoss/Model/` | The rig tree, addressing, and the insert/move/remove/normalise algorithms. No SwiftUI. |
+| `Ljoss/DragEngine/` | Drag state, the frame registry and hit testing, the render-slot mapping, wrapped-row geometry, auto-scroll, and the gesture. |
+| `Ljoss/Views/` | Canvas, node tiles, palette tray, inspector, rig library, the settings areas and their pages, and the sizing and colour tokens. |
+| `Ljoss/Store/` | Rig persistence (one JSON file per rig) and the starter rigs. |
+| `Ljoss/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. No SwiftUI. |
+| `Ljoss/Engine/` | The namchain client. The wire types, the block mapping, the tree-to-graph encoder, the protocol types and the framing have no SwiftUI and no Network, so they compile into the test runner; the client, settings and session sit above them. |
+| `Ljoss/Assets/` | The user's own models and impulse responses: the configured folders, the bounded sniff of a `.nam` or `.wav`, the brand table, the scan and its ordering, and the store above them. The five lower files have no SwiftUI, so they compile into the test runner. |
 | `Tests/` | Model-layer, flow-geometry, encoder and wire assertions, and their runner. |
 | `Tools/` | Two things that need a real engine rather than a fixture: a dump of what the encoder would send, and a handshake-and-apply against a running daemon. |
 
 Rigs are stored as JSON under
-`~/Library/Application Support/RigDesigner/Rigs/`, one file per rig.
+`~/Library/Application Support/Ljoss/Rigs/`, one file per rig.
 
 ## Status
 

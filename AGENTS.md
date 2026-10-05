@@ -1,4 +1,4 @@
-# ljoss (Rig Designer)
+# ljoss
 
 A SwiftUI signal-chain designer for guitar, bass and vocal rigs (macOS 27+ and iOS 27+, one
 multiplatform target). It is also the front end for namchain: pointed at a device, it sends the
@@ -11,7 +11,7 @@ The Xcode project is generated from `project.yml` and not committed.
 
 ```sh
 xcodegen generate
-xcodebuild -project RigDesigner.xcodeproj -scheme RigDesigner -destination 'platform=macOS' build
+xcodebuild -project Ljoss.xcodeproj -scheme Ljoss -destination 'platform=macOS' build
 ./Tests/run-model-tests.sh        # model, geometry, encoder and wire assertions; plain swiftc
 ```
 
@@ -26,6 +26,6 @@ Checks that need a real daemon are tools, not tests: `Tools/dump-engine-document
   record decisions that could have gone the other way. Read the relevant one before
   "simplifying" something.
 - LocalEngine and model-finder work is on the `local-engine` branch, not `main`.
-- The checkout is `~/code.local/ljoss`; the app is still called Rig Designer.
+- The checkout is `~/code.local/ljoss`, and the app, the project and the Xcode target are all called Ljoss.
 
 System context (the pedal, how the repos fit together, the plan): `~/code.local/pedal.project`, starting at its `CLAUDE.md` and `docs/working-across-repos.md`.

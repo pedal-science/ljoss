@@ -46,7 +46,47 @@ final class RigEditor {
     /// so a freshly opened rig reaches a connected device.
     func didAppear() {
         engine?.rigDidChange(rig)
+        remeasure()
     }
+
+    // MARK: - Measurement
+
+    /// Bumped to make every view that measures itself measure again — see
+    /// `remeasure()`. Views read it where they are built, so a bump re-renders
+    /// them and their `onGeometryChange` value differs even when the numbers are
+    /// the same as last time.
+    private(set) var layoutGeneration = 0
+
+    /// Ask the canvas to measure itself again, now and for the next moment.
+    ///
+    /// `onGeometryChange` fires when the value it computes *changes*, and that is
+    /// not enough on its own. Coming back from settings the canvas is built again
+    /// and can be measured while it is still moving into place — before the split
+    /// view's columns have settled, or before a scroll position is restored —
+    /// after which nothing reports again. The registry is then left holding rects
+    /// for a canvas that is no longer on screen, so a press resolves to nothing
+    /// and no node can be picked up, while the nodes themselves look perfectly
+    /// normal. The rig id keys the editor, so switching rigs builds a new one and
+    /// measures from scratch — which is why that is the way out of it.
+    ///
+    /// Measuring a few times over the first second and a half is what makes the
+    /// difference: the later measurements see the settled layout. It is bounded,
+    /// it happens only on appearance, and each pass is one render of the canvas.
+    private func remeasure() {
+        for delay in Self.remeasureDelays {
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(delay))
+                layoutGeneration &+= 1
+            }
+        }
+    }
+
+    /// Seconds after appearing at which to measure again: at once, and then as
+    /// the columns and any restored scroll position finish moving. Measured
+    /// against the app rather than guessed: coming back from settings the canvas
+    /// reports itself at x = 9.5, then 265, and only settles at 438, with the
+    /// last of those arriving well after the first.
+    private static let remeasureDelays: [Double] = [0, 0.1, 0.25, 0.5, 0.9, 1.5]
 
     // MARK: - Drag lifecycle
 

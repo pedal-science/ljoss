@@ -9,7 +9,7 @@ import SwiftUI
 // document, and it belongs there by the user's own words rather than by SwiftUI's
 // grouping.
 //
-// The state it reads comes from `RigDesignerApp` as parameters rather than from the
+// The state it reads comes from `LjossApp` as parameters rather than from the
 // environment: a `Commands` body is not inside the window's view hierarchy, which is
 // exactly the problem `RigSelection` exists to solve.
 struct ExportRigCommands: Commands {

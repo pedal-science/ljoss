@@ -40,6 +40,8 @@ struct DragAutoScroll: ViewModifier {
     @State private var state = AutoScrollState()
 
     func body(content: Content) -> some View {
+        let generation = editor.layoutGeneration
+
         content
             .scrollPosition($position)
             .onScrollGeometryChange(for: AxisScrollMetrics.self) { [axis] geo in
@@ -71,7 +73,7 @@ struct DragAutoScroll: ViewModifier {
                 // frame, and feeding it back makes the content judder.
                 if !state.isAutoScrolling { state.offset = new.offset }
             }
-            .reportGlobalFrame { state.viewport = $0 }
+            .reportGlobalFrame(generation: generation) { state.viewport = $0 }
             .task(id: editor.drag.isActive) {
                 await run()
             }

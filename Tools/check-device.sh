@@ -15,16 +15,16 @@ rig="${4:-gain0}"
 [[ -s "$token_file" ]] || { echo "no token at $token_file" >&2; exit 2; }
 
 sources=(
-  "$root"/RigDesigner/Model/*.swift
-  "$root"/RigDesigner/Store/RigFactory.swift
-  "$root"/RigDesigner/Catalogue/Catalogue.swift
-  "$root"/RigDesigner/Catalogue/CatalogueData.swift
-  "$root"/RigDesigner/Engine/EngineDocument.swift
-  "$root"/RigDesigner/Engine/BlockMapping.swift
-  "$root"/RigDesigner/Engine/DocumentEncoder.swift
-  "$root"/RigDesigner/Engine/EngineProtocol.swift
-  "$root"/RigDesigner/Engine/EngineFraming.swift
-  "$root"/RigDesigner/Engine/EngineClient.swift
+  "$root"/Ljoss/Model/*.swift
+  "$root"/Ljoss/Store/RigFactory.swift
+  "$root"/Ljoss/Catalogue/Catalogue.swift
+  "$root"/Ljoss/Catalogue/CatalogueData.swift
+  "$root"/Ljoss/Engine/EngineDocument.swift
+  "$root"/Ljoss/Engine/BlockMapping.swift
+  "$root"/Ljoss/Engine/DocumentEncoder.swift
+  "$root"/Ljoss/Engine/EngineProtocol.swift
+  "$root"/Ljoss/Engine/EngineFraming.swift
+  "$root"/Ljoss/Engine/EngineClient.swift
   "$root"/Tools/TestRigs.swift
   "$root"/Tools/CheckDevice.swift
 )

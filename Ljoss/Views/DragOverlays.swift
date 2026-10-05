@@ -88,6 +88,8 @@ struct TrashZone: View {
     private var isTargeted: Bool { editor.drag.isOverTrash }
 
     var body: some View {
+        let generation = editor.layoutGeneration
+
         Group {
             if isVisible {
                 HStack(spacing: 10) {
@@ -106,7 +108,7 @@ struct TrashZone: View {
                     Capsule().strokeBorder(Color.red.opacity(isTargeted ? 0 : 0.5), lineWidth: 2)
                 }
                 .scaleEffect(isTargeted ? 1.08 : 1)
-                .reportGlobalFrame { editor.registry.trashRect = $0 }
+                .reportGlobalFrame(generation: generation) { editor.registry.trashRect = $0 }
                 .onDisappear { editor.registry.trashRect = .zero }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .allowsHitTesting(false)

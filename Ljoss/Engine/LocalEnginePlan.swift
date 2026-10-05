@@ -299,12 +299,8 @@ struct LocalEnginePlan: Equatable, Sendable {
     static func engineRoot(_ path: String, fileManager: FileManager = .default) -> URL {
         let text = path.trimmingCharacters(in: .whitespaces)
         if !text.isEmpty { return URL(filePath: text, directoryHint: .isDirectory) }
-        let base = (try? fileManager.url(for: .applicationSupportDirectory,
-                                         in: .userDomainMask,
-                                         appropriateFor: nil,
-                                         create: true))
-            ?? fileManager.temporaryDirectory
-        return base.appending(path: "Ljoss/LocalEngine", directoryHint: .isDirectory)
+        return AppDirectories.support(fileManager: fileManager)
+            .appending(path: "LocalEngine", directoryHint: .isDirectory)
     }
 
     /// \brief A token for the daemon's control port.

@@ -10,13 +10,13 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 out="${TMPDIR:-/tmp}/rigdesigner-dump-document"
 
 sources=(
-  "$root"/RigDesigner/Model/*.swift
-  "$root"/RigDesigner/Store/RigFactory.swift
-  "$root"/RigDesigner/Catalogue/Catalogue.swift
-  "$root"/RigDesigner/Catalogue/CatalogueData.swift
-  "$root"/RigDesigner/Engine/EngineDocument.swift
-  "$root"/RigDesigner/Engine/BlockMapping.swift
-  "$root"/RigDesigner/Engine/DocumentEncoder.swift
+  "$root"/Ljoss/Model/*.swift
+  "$root"/Ljoss/Store/RigFactory.swift
+  "$root"/Ljoss/Catalogue/Catalogue.swift
+  "$root"/Ljoss/Catalogue/CatalogueData.swift
+  "$root"/Ljoss/Engine/EngineDocument.swift
+  "$root"/Ljoss/Engine/BlockMapping.swift
+  "$root"/Ljoss/Engine/DocumentEncoder.swift
   "$root"/Tools/TestRigs.swift
   "$root"/Tools/DumpDocument.swift
 )

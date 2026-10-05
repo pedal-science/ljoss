@@ -47,13 +47,10 @@ final class AssetLibrary {
         if let directory {
             self.directory = directory
         } else {
-            let base = (try? FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )) ?? URL.temporaryDirectory
-            self.directory = base.appending(path: "RigDesigner", directoryHint: .isDirectory)
+            // Sibling of the rigs, and moved out of the folder's old name with them —
+            // whichever of the two is built first does the move, and the second is a no-op.
+            AppDirectories.migrateLegacyFolder()
+            self.directory = AppDirectories.support()
         }
         load()
     }

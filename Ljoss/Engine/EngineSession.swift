@@ -51,6 +51,14 @@ final class EngineSession {
 
     // MARK: State the UI reads
 
+    /// The device's audio levels, polled at their own rate and kept out of `status`.
+    ///
+    /// A separate object because `status` is read by every block on the canvas: putting levels
+    /// in it would invalidate the whole rig twenty times a second to move a few bars
+    /// (EngineLevels has the reasoning). This session owns its lifetime, so pausing the app or
+    /// losing the device stops the meter polling too.
+    let levels = EngineLevelsModel()
+
     private(set) var connection: Connection = .offline
     private(set) var hello: EngineHello?
     private(set) var status: EngineStatus?
@@ -158,6 +166,9 @@ final class EngineSession {
                 catalogue = EngineCatalogue(schema: schema)
             }
             startPolling()
+            // The meters, only if this engine says it measures levels: an older one is not a
+            // broken one, and `start` says so once rather than refusing every 50 ms.
+            levels.start(using: client, supported: hello?.has("levels") ?? false)
             // Reconcile: the device is running whatever it was left with, and this
             // app owns the document, so the document wins.
             if let latest { await apply(latest) }
@@ -180,6 +191,7 @@ final class EngineSession {
 
     /// Let go of the connection and everything that belonged to it.
     private func close() {
+        levels.stop()
         poller?.cancel(); poller = nil
         debounce?.cancel(); debounce = nil
         debounced = nil
@@ -227,6 +239,7 @@ final class EngineSession {
     /// and a connection still wanted is tried again as soon as the app is back.
     func pause() {
         paused = true
+        levels.pause()
         poller?.cancel()
         poller = nil
         reconnect?.cancel()

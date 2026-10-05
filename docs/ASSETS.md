@@ -143,7 +143,7 @@ user is reading it, so it keeps its shape and shows information only when there 
 
 ## Stored where
 
-One JSON file, `~/Library/Application Support/RigDesigner/AssetLibrary.json`, written
+One JSON file, `~/Library/Application Support/Ljoss/AssetLibrary.json`, written
 atomically on every change. One file rather than one per entry, unlike rigs: this is app
 state rather than a document someone would mind losing one of, and a corrupt file starts
 an empty library with a message rather than silently listing nothing.

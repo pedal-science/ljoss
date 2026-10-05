@@ -33,7 +33,7 @@ device — the device's library is the operator's, and a rig still names an id f
 The engine will not accept this app's tree, and that is deliberate on both sides.
 Taking it would mean the engine owning an ordered chain/lane/parallel model that
 exists purely for authoring, duplicating the edit algorithms and invariants of
-[ChainEdits.swift](../RigDesigner/Model/ChainEdits.swift) in C++, and doubling the
+[ChainEdits.swift](../Ljoss/Model/ChainEdits.swift) in C++, and doubling the
 document forms the patch protocol has to support.
 
 The other extreme — the app emitting raw primitive graphs — fails differently: every
@@ -214,6 +214,45 @@ comparison can't show to be a ramp is treated as structural.
 Not done yet: a bypass that ramps, which needs the engine to fade a node to its dry
 input without a rebuild, and an edit history.
 
+## Levels
+
+`engine.levels` answers the one question every other number in `engine.status` cannot: how loud the
+audio is. Read-only, small, dBFS with -200 as the floor, and polled rather than subscribed to.
+
+```
+{ "levels": {
+    "state": "running", "blocks": 2039, "sample_rate": 48000, "period_size": 64,
+    "input":  { "peak": [-2.2, -74.9], "rms": [-28.0, -86.0], "clipped": [0, 0] },
+    "output": { "peak": [-6.0, -200.0], "rms": [-30.1, -200.0], "clipped": [0, 0] },
+    "chains": [ { "id": "…", "name": "Guitar", "output_channel": 0, "muted": false,
+                  "out": { "peak": -6.0, "rms": -30.1, "frames": 4224, "clipped": 0 },
+                  "nodes": [ { "node": "…", "element": "<block uuid>", "role": "level",
+                               "peak": -6.0, "rms": -30.1, "frames": 4224 } ] } ] } }
+```
+
+Four things to know before drawing anything from it:
+
+- **`element` is the app's own block identity.** The engine lowers a macro into primitives that keep
+  it, so several nodes can share one element and the *block's* level is the loudest of them
+  (`EngineChainLevels.level(forElement:)`). `roles` says which primitive each one is, for a client
+  that wants to know which half of a cabinet is hot.
+- **Each read takes its window.** The probes are read-and-reset, so two polls describe disjoint
+  windows and a client polling faster than the engine renders will see `frames: 0` between populated
+  ones. `EngineLevels.combining(previous:fresh:)` holds the last window with samples in it, and
+  `hasSignal` is the test; a meter that drew an empty window would flicker to silence every time
+  anything else asked the engine a question.
+- **The engine's floor is silence, not a very quiet signal.** A channel nothing is routed to arrives
+  as `-200`, which is below any meter's own scale (`MeterScale.floor` is -70). The difference is what
+  stops a bar being drawn for a channel with no signal.
+- **Clipping is per device channel and latches in the UI.** `output.clipped[c]` counts the samples
+  the encode had to clamp — a listener's saturation, and the only place full scale means anything
+  (a node's float output is allowed past 1.0 and routinely is, which is why nodes carry no `clipped`).
+
+In this app the poll is `EngineLevelsModel` (20 Hz, its own observable so the rig canvas is not
+invalidated at meter rate) and the meters are `MeterReader` + `LevelBar` (`MeterScale` for the
+thresholds, `MeterBallistics` for the release). An engine that does not advertise `levels` in
+`engine.hello` hides the meters rather than erroring: an older engine is not a broken one.
+
 ## The local engine
 
 Settings → Hardware offers the other way round as well: **Connect to this computer**, which runs a
@@ -294,7 +333,7 @@ exercise from the other side and [WireTests.swift](../Tests/WireTests.swift) cov
 from this one:
 
 - **One `recv` is not one message.** A body may arrive in pieces; several may arrive
-  in one read. [EngineFraming.swift](../RigDesigner/Engine/EngineFraming.swift) is
+  in one read. [EngineFraming.swift](../Ljoss/Engine/EngineFraming.swift) is
   split out from the client precisely so this is testable without a socket.
 - **A network client may never name an absolute path.** Models and impulse responses
   go by library id (`tweed/deluxe`), or the document is refused before it compiles.

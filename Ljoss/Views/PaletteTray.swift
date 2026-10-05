@@ -155,6 +155,8 @@ struct PaletteItem: View {
     private var isUnplayable: Bool { session?.canPlay(spec.id) == false }
 
     var body: some View {
+        let generation = editor.layoutGeneration
+
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 4) {
                 Image(systemName: spec.symbol)
@@ -189,7 +191,7 @@ struct PaletteItem: View {
         }
         .opacity(isUnplayable ? 0.55 : 1)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .reportGlobalFrame { editor.registry.setPaletteItem(spec.id, rect: $0) }
+        .reportGlobalFrame(generation: generation) { editor.registry.setPaletteItem(spec.id, rect: $0) }
         .onDisappear { editor.registry.removePaletteItem(spec.id) }
         .onTapGesture {
             // Tapping is the no-drag route: append to the end of the matching chain.

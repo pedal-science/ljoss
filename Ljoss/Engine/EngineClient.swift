@@ -28,10 +28,10 @@ actor EngineClient {
     /// this app has not been allowed onto the local network. The permission follows the
     /// app's signing identity, so a differently signed build asks again.
     #if os(macOS)
-    static let localNetworkDenied = "macOS is not letting Rig Designer reach the local network. "
+    static let localNetworkDenied = "macOS is not letting Ljoss reach the local network. "
         + "Allow it in System Settings → Privacy & Security → Local Network."
     #else
-    static let localNetworkDenied = "iOS is not letting Rig Designer reach the local network. "
+    static let localNetworkDenied = "iOS is not letting Ljoss reach the local network. "
         + "Allow it in Settings → Privacy & Security → Local Network."
     #endif
 

@@ -1,11 +1,10 @@
 import SwiftUI
 
-/// Geometry snapshot used to register a container. Bundling the rendered ids
-/// with the rect means the registry is refreshed when the *contents* change,
-/// not only when the frame moves.
-private struct ContainerSnapshot: Equatable {
-    var rect: CGRect
-    var ids: [UUID]
+/// One measured width, tagged with the layout generation for the same reason
+/// `MeasuredFrame` is: a re-inserted row must measure itself again.
+private struct MeasuredWidth: Equatable {
+    var width: CGFloat
+    var generation: Int
 }
 
 // MARK: - A series of elements
@@ -32,6 +31,7 @@ struct ElementSequenceView: View {
     var body: some View {
         let items = rendered
         let ids = items.map(\.id)
+        let generation = editor.layoutGeneration
 
         HStack(spacing: 0) {
             ForEach(Array(items.enumerated()), id: \.element.id) { index, element in
@@ -46,8 +46,8 @@ struct ElementSequenceView: View {
         .background {
             if items.isEmpty { DryOutline() }
         }
-        .onGeometryChange(for: ContainerSnapshot.self) { proxy in
-            ContainerSnapshot(rect: proxy.frame(in: .global), ids: ids)
+        .onGeometryChange(for: FrameSnapshot.self) { proxy in
+            FrameSnapshot(rect: proxy.frame(in: .global), ids: ids, generation: generation)
         } action: { snapshot in
             editor.registry.setContainer(
                 container,
@@ -93,12 +93,15 @@ struct ChainFlowView: View {
         // Enough wire for the most rows the chain could need: every tile on a
         // row of its own, plus one open gap. Unused pieces sit at zero size.
         let wirePieces = (items.count + 2) * FlowArrangement.WirePiece.allCases.count
+        let generation = editor.layoutGeneration
 
         ChainFlowLayout(wrapWidth: wrapWidth) {
             EndpointTile(kind: .input, source: chain.source,
                          isSelected: editor.selection == .input(chain.id))
                 .onTapGesture { editor.selection = .input(chain.id) }
-                .reportGlobalFrame { editor.registry.setEndpoint(.leading, rect: $0, for: container) }
+                .reportGlobalFrame(generation: generation) {
+                    editor.registry.setEndpoint(.leading, rect: $0, for: container)
+                }
 
             ForEach(Array(items.enumerated()), id: \.element.id) { index, element in
                 DropGap(isOpen: isTarget(index), width: gapWidth)
@@ -124,7 +127,9 @@ struct ChainFlowView: View {
                 EndpointTile(kind: .output, source: chain.source,
                              isSelected: editor.selection == .output(chain.id))
                     .onTapGesture { editor.selection = .output(chain.id) }
-                    .reportGlobalFrame { editor.registry.setEndpoint(.trailing, rect: $0, for: container) }
+                    .reportGlobalFrame(generation: generation) {
+                        editor.registry.setEndpoint(.trailing, rect: $0, for: container)
+                    }
             }
 
             ForEach(0..<wirePieces, id: \.self) { n in
@@ -137,8 +142,8 @@ struct ChainFlowView: View {
                     .allowsHitTesting(false)
             }
         }
-        .onGeometryChange(for: ContainerSnapshot.self) { proxy in
-            ContainerSnapshot(rect: proxy.frame(in: .global), ids: ids)
+        .onGeometryChange(for: FrameSnapshot.self) { proxy in
+            FrameSnapshot(rect: proxy.frame(in: .global), ids: ids, generation: generation)
         } action: { snapshot in
             editor.registry.setContainer(container, rect: snapshot.rect, depth: 0, renderedIDs: snapshot.ids)
         }
@@ -174,8 +179,10 @@ struct BlockNodeView: View {
     private var isSelected: Bool { editor.selection == .block(block.id) }
 
     var body: some View {
+        let generation = editor.layoutGeneration
+
         NodeTile(block: block, isSelected: isSelected)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+            .reportGlobalFrame(generation: generation) { rect in
                 editor.registry.setElement(block.id, rect: rect)
             }
             .onDisappear { editor.registry.removeElement(block.id) }
@@ -216,6 +223,8 @@ struct ParallelSectionView: View {
     @Environment(RigEditor.self) private var editor
 
     var body: some View {
+        let generation = editor.layoutGeneration
+
         HStack(spacing: 0) {
             SplitBracket(lanes: section.lanes.count, isSplit: true)
                 .onTapGesture { editor.selection = .parallel(section.id) }
@@ -241,7 +250,7 @@ struct ParallelSectionView: View {
             RoundedRectangle(cornerRadius: Metrics.nodeCorner + 6, style: .continuous)
                 .fill(.quinary)
         }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+        .reportGlobalFrame(generation: generation) { rect in
             editor.registry.setElement(section.id, rect: rect)
         }
         .onDisappear { editor.registry.removeElement(section.id) }
@@ -295,6 +304,8 @@ struct ChainRowView: View {
     }
 
     var body: some View {
+        let generation = editor.layoutGeneration
+
         VStack(alignment: .leading, spacing: 8) {
             header
 
@@ -314,7 +325,9 @@ struct ChainRowView: View {
             .scrollIndicators(.hidden)
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .dragAutoScroll(.horizontal)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+            .onGeometryChange(for: MeasuredWidth.self) { proxy in
+                MeasuredWidth(width: proxy.size.width, generation: generation)
+            } action: { viewportWidth = $0.width }
             .background {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
                     .fill(.quinary.opacity(0.5))

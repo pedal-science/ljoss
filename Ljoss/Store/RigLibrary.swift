@@ -23,14 +23,10 @@ final class RigLibrary: RigProviding {
         if let directory {
             self.directory = directory
         } else {
-            let base = (try? FileManager.default.url(
-                for: .applicationSupportDirectory,
-                in: .userDomainMask,
-                appropriateFor: nil,
-                create: true
-            )) ?? URL.temporaryDirectory
-            self.directory = base
-                .appending(path: "RigDesigner", directoryHint: .isDirectory)
+            // The rigs may be in the folder's old name: the first launch after the rename
+            // moves them, and this is the earliest thing that looks.
+            AppDirectories.migrateLegacyFolder()
+            self.directory = AppDirectories.support()
                 .appending(path: "Rigs", directoryHint: .isDirectory)
         }
         load()

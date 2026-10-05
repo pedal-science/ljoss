@@ -240,6 +240,129 @@ struct EngineStatus: Decodable, Sendable, Hashable {
 /// The envelope `engine.status` arrives in.
 struct StatusResponse: Decodable, Sendable { var status: EngineStatus? }
 
+// MARK: - Levels
+
+/// One place in the signal path, measured: a peak and an RMS in dBFS, and how many samples
+/// the window held.
+///
+/// `frames` matters as much as the numbers. The engine's probes are read-and-reset, so a
+/// window can legitimately be empty — a read that lands between two blocks — and a level
+/// with `frames == 0` is not a level at all. A meter must hold what it was showing rather
+/// than jumping to the floor, which is why this is a `Decodable` field and not a default.
+struct EngineLevel: Decodable, Sendable, Hashable {
+    var node: String?
+    /// The client's block identity — a block's UUID as the encoder sent it. A macro is
+    /// lowered into primitives that keep this, so several nodes can share one element.
+    var element: String?
+    /// Which primitive of that macro this node is (`level`, `low`, `ir`, …).
+    var role: String?
+    var peak: Double?
+    var rms: Double?
+    var frames: UInt64?
+
+    var hasSignal: Bool { (frames ?? 0) > 0 }
+}
+
+/// One chain's levels: its own output, and every node in the plan it is playing.
+struct EngineChainLevels: Decodable, Sendable, Hashable, Identifiable {
+    var id: String?
+    var name: String?
+    var outputChannel: Int?
+    var muted: Bool?
+    var out: EngineLevel?
+    var nodes: [EngineLevel]?
+
+    /// The loudest node for this element, which is the level of the *block*: a macro's
+    /// primitives are in series, so the loudest is where the signal has got to by the end
+    /// of the part that matters. An element with no nodes (a block the engine lowered
+    /// away, or one the guard has failed) has no level, and `nil` is the honest answer.
+    func level(forElement element: UUID) -> EngineLevel? {
+        let key = element.uuidString
+        let matching = (nodes ?? []).filter { $0.element == key && $0.hasSignal }
+        return matching.max { ($0.peak ?? -200) < ($1.peak ?? -200) }
+    }
+}
+
+/// `engine.levels`: the audio levels and nothing else.
+///
+/// A method of its own rather than the levels inside `engine.status`, because a meter polls
+/// this several times a second and `engine.status` is a document's worth of JSON — chains,
+/// issues, model budget, transitions — that has to be built on the engine's control thread
+/// every time it is asked.
+struct EngineLevels: Decodable, Sendable, Hashable {
+    /// `closed`, `running` or `lost`, so a meter can say why it has nothing to show.
+    var state: String?
+    var blocks: UInt64?
+    var sampleRate: Int?
+    var periodSize: Int?
+    /// Per device channel. The input is the ADC's own level, before any chain routing —
+    /// which is what makes "the input is dead" different from "the input is not routed".
+    var input: EngineSideLevels?
+    /// Per device channel, summed over the chains writing that channel.
+    var output: EngineSideLevels?
+    var chains: [EngineChainLevels]?
+    var truncated: Bool?
+
+    /// Whether anything at all was measured, which is the difference between "silence" and
+    /// "the window was empty".
+    var hasSignal: Bool {
+        if (input?.maxPeak ?? -200) > -199 { return true }
+        if (output?.maxPeak ?? -200) > -199 { return true }
+        return (chains ?? []).contains { chain in
+            (chain.out?.frames ?? 0) > 0 || (chain.nodes ?? []).contains { $0.hasSignal }
+        }
+    }
+}
+
+/// One direction's levels: an entry per device channel.
+struct EngineSideLevels: Decodable, Sendable, Hashable {
+    var peak: [Double]?
+    var rms: [Double]?
+    var clipped: [UInt64]?
+
+    /// The loudest channel, for a single-number readout.
+    var maxPeak: Double? { peak?.max() }
+}
+
+/// The envelope `engine.levels` arrives in.
+struct LevelsResponse: Decodable, Sendable { var levels: EngineLevels? }
+
+extension EngineLevels {
+    /// rief `fresh`, with any window it did not measure taken from `previous`.
+    ///
+    /// The engine reads and resets, so a poll can arrive with `frames: 0` everywhere — the
+    /// window it took was empty because something else (a status call, another client) read
+    /// the probes a moment before. That is a reading of nothing, not silence, and a meter that
+    /// drew it would flicker to the floor whenever anything else asked the engine a question.
+    /// So an empty window inherits the last one that was not, and the `state` and counters
+    /// stay the fresh ones, because those really are new.
+    static func combining(previous: EngineLevels?, fresh: EngineLevels) -> EngineLevels {
+        guard let previous, !fresh.hasSignal else { return fresh }
+        var merged = fresh
+        merged.input = fresh.input?.framesPresent ?? previous.input
+        merged.output = fresh.output?.framesPresent ?? previous.output
+        if let freshChains = fresh.chains {
+            merged.chains = freshChains.map { chain in
+                guard let old = previous.chains?.first(where: { $0.id == chain.id }) else { return chain }
+                var carried = chain
+                if !(chain.out?.hasSignal ?? false) { carried.out = old.out }
+                if !(chain.nodes ?? []).contains(where: { $0.hasSignal }) { carried.nodes = old.nodes }
+                return carried
+            }
+        }
+        return merged
+    }
+}
+
+extension EngineSideLevels {
+    /// Whether this direction measured anything. The envelope has no frame count of its own —
+    /// a peak above the floor is what "measured something" means here — so `-199` is the test,
+    /// which is well inside the engine's `-200` floor and far below any real signal.
+    var framesPresent: EngineSideLevels? {
+        (maxPeak ?? -200) > -199 ? self : nil
+    }
+}
+
 struct EngineAsset: Decodable, Sendable, Hashable, Identifiable {
     /// The path under the root with the extension removed — `tweed/deluxe`. **This**
     /// is what a document names; a path is refused outright from a network client.

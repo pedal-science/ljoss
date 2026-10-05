@@ -159,7 +159,7 @@ check, a naive remove-then-insert either loses the subtree or builds a cycle.
 ## Persistence
 
 One JSON file per rig under
-`~/Library/Application Support/RigDesigner/Rigs/`, written atomically, with
+`~/Library/Application Support/Ljoss/Rigs/`, written atomically, with
 edits coalesced behind a 400 ms debounce and flushed when the scene leaves
 `.active`.
 

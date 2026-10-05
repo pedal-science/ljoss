@@ -77,6 +77,10 @@ struct RigEditorView: View {
             }
             .padding(.vertical, 16)
         }
+        // The meters read one shared set of level readings, decayed for display: see
+        // LevelMeters. Applied here rather than per tile, so a rig of forty blocks costs the
+        // same one poll per 50 ms as a rig of one.
+        .meterReadings()
         .scrollDisabled(editor.drag.isActive)
         // Wrapped chains can outgrow the screen vertically, so the canvas
         // auto-scrolls too. Not past its bottom edge, though: below it is the

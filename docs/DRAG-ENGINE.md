@@ -47,7 +47,7 @@ release ─▶ Rig.modelSlot(for:hiding:) ─▶ Rig.move(from:to:) ─▶ norma
   only gesture and tick callbacks *read* it.
 - `RigEditor` owns both, plus the rig, and commits the drop.
 
-## The three load-bearing properties
+## The four load-bearing properties
 
 ### 1. The gesture is hosted on the canvas, never on a tile
 
@@ -92,6 +92,37 @@ Related: the `of:` transform passed to `onGeometryChange` is `@Sendable` and
 must stay pure. The write belongs in `action:`. Because the API is
 `@preconcurrency`, doing it the wrong way is only a warning under Swift 6 — so
 it is easy to ship an actual data race here.
+
+### 4. The canvas is measured again when it appears
+
+`onGeometryChange` fires when the value its transform produces **changes**, and
+that is not enough on its own. Leaving settings rebuilds the whole rig shell, and
+the canvas is measured on the way in — while the split view's columns are still
+moving it into place. Watched from inside the app, one node's registration goes
+`x = 9.5`, then `265`, and only settles at `438`, and the last of those used to
+arrive **never**: the registry was left holding rects for a canvas that was no
+longer on screen.
+
+The symptom is silent and looks nothing like a geometry bug: every node is drawn
+where it belongs, the tiles still respond to a click, and yet **no node can be
+picked up** — every press resolves to nothing, because `element(at:)` is asking
+about a canvas that has moved. Switching rig "fixes" it because the editor is
+keyed on the rig id, so a new editor measures from scratch.
+
+So every measured value carries the editor's `layoutGeneration` — `MeasuredFrame`
+for a rect, `FrameSnapshot` for a container, `MeasuredWidth` for the width a row
+wraps at — and `RigEditor.didAppear()` bumps it on a short schedule (at once, then
+0.1, 0.25, 0.5, 0.9 and 1.5 seconds). The bump re-renders the views that read it,
+their values differ, and the actions run again against the settled layout.
+
+Two things to keep if this is ever touched:
+
+- **The generation must be read where the view is built**, not inside the `of:`
+  closure. Reading it in `body` is what creates the observation dependency that
+  makes the view render — and therefore measure — again.
+- **The schedule is a settle window, not a poll.** It is bounded, it runs once per
+  appearance, and each pass costs one render of the canvas. Do not turn it into a
+  timer.
 
 ## Hit testing
 

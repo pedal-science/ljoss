@@ -10,31 +10,33 @@ out="$(mktemp -d)"
 trap 'rm -rf "$out"' EXIT
 
 sources=(
-  "$root"/RigDesigner/Model/*.swift
-  "$root"/RigDesigner/DragEngine/RenderSlotMapping.swift
-  "$root"/RigDesigner/DragEngine/FlowGeometry.swift
-  "$root"/RigDesigner/Store/RigFactory.swift
-  "$root"/RigDesigner/Store/RigJSON.swift
-  "$root"/RigDesigner/Store/ZipArchive.swift
-  "$root"/RigDesigner/Store/RigExport.swift
-  "$root"/RigDesigner/Store/RigSelection.swift
-  "$root"/RigDesigner/Catalogue/Catalogue.swift
-  "$root"/RigDesigner/Catalogue/CatalogueData.swift
-  "$root"/RigDesigner/Engine/EngineDocument.swift
-  "$root"/RigDesigner/Engine/BlockMapping.swift
-  "$root"/RigDesigner/Engine/DocumentEncoder.swift
-  "$root"/RigDesigner/Engine/EngineProtocol.swift
-  "$root"/RigDesigner/Engine/EngineFraming.swift
-  "$root"/RigDesigner/Engine/EngineEdits.swift
-  "$root"/RigDesigner/Engine/EngineSettings.swift
-  "$root"/RigDesigner/App/SavePanel.swift
-  "$root"/RigDesigner/App/ExportController.swift
-  "$root"/RigDesigner/Engine/LocalEnginePlan.swift
-  "$root"/RigDesigner/Assets/AssetEntry.swift
-  "$root"/RigDesigner/Assets/NAMSniff.swift
-  "$root"/RigDesigner/Assets/MakeHeuristics.swift
-  "$root"/RigDesigner/Assets/AssetScan.swift
-  "$root"/RigDesigner/Assets/AssetOrder.swift
+  "$root"/Ljoss/Model/*.swift
+  "$root"/Ljoss/DragEngine/RenderSlotMapping.swift
+  "$root"/Ljoss/DragEngine/FlowGeometry.swift
+  "$root"/Ljoss/Store/AppDirectories.swift
+  "$root"/Ljoss/Store/RigFactory.swift
+  "$root"/Ljoss/Store/RigJSON.swift
+  "$root"/Ljoss/Store/ZipArchive.swift
+  "$root"/Ljoss/Store/RigExport.swift
+  "$root"/Ljoss/Store/RigSelection.swift
+  "$root"/Ljoss/Catalogue/Catalogue.swift
+  "$root"/Ljoss/Catalogue/CatalogueData.swift
+  "$root"/Ljoss/Engine/EngineDocument.swift
+  "$root"/Ljoss/Engine/BlockMapping.swift
+  "$root"/Ljoss/Engine/DocumentEncoder.swift
+  "$root"/Ljoss/Engine/EngineProtocol.swift
+  "$root"/Ljoss/Engine/EngineFraming.swift
+  "$root"/Ljoss/Engine/EngineEdits.swift
+  "$root"/Ljoss/Engine/EngineSettings.swift
+  "$root"/Ljoss/Views/LevelMeters.swift
+  "$root"/Ljoss/App/SavePanel.swift
+  "$root"/Ljoss/App/ExportController.swift
+  "$root"/Ljoss/Engine/LocalEnginePlan.swift
+  "$root"/Ljoss/Assets/AssetEntry.swift
+  "$root"/Ljoss/Assets/NAMSniff.swift
+  "$root"/Ljoss/Assets/MakeHeuristics.swift
+  "$root"/Ljoss/Assets/AssetScan.swift
+  "$root"/Ljoss/Assets/AssetOrder.swift
   "$root"/Tests/ModelTests.swift
   "$root"/Tests/FlowTests.swift
   "$root"/Tests/EncoderTests.swift

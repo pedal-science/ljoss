@@ -135,6 +135,7 @@ struct SettingsToolbarItem: View {
         }
         .help(isOpen ? "Close settings" : "Settings")
         .accessibilityLabel(Text(isOpen ? "Close Settings" : "Settings"))
+
     }
 }
 

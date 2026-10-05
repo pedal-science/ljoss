@@ -113,6 +113,29 @@ struct DragSurfaceGesture: ViewModifier {
     }
 }
 
+/// One measured frame, tagged with the layout generation it was measured in.
+///
+/// `onGeometryChange` fires when the value its transform produces *changes*, and
+/// a view that is re-inserted — a canvas coming back from settings — can be
+/// measured once while it is still moving into place and then never again, which
+/// leaves the registry describing a canvas that is no longer on screen. Carrying
+/// the generation makes the value differ when the editor asks for a fresh
+/// measurement, so the action runs again and reports where things really are.
+/// See `RigEditor.layoutGeneration`.
+struct MeasuredFrame: Equatable {
+    var rect: CGRect
+    var generation: Int
+}
+
+/// A container's frame, its rendered contents, and the generation it was
+/// measured in. Bundling the rendered ids with the rect means the registry is
+/// refreshed when the *contents* change, not only when the frame moves.
+struct FrameSnapshot: Equatable {
+    var rect: CGRect
+    var ids: [UUID]
+    var generation: Int
+}
+
 extension View {
     /// Host the drag gesture for a surface. Apply to a container that outlives
     /// the tiles inside it.
@@ -121,8 +144,14 @@ extension View {
     }
 
     /// Publish this view's global frame to a closure, without touching view state.
-    func reportGlobalFrame(_ action: @escaping (CGRect) -> Void) -> some View {
-        onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { action($0) }
+    ///
+    /// `generation` is the caller's reading of `RigEditor.layoutGeneration`: it
+    /// must be read where the view is built, because that is what makes the view
+    /// re-render — and so re-measure — when the editor moves it on.
+    func reportGlobalFrame(generation: Int, _ action: @escaping (CGRect) -> Void) -> some View {
+        onGeometryChange(for: MeasuredFrame.self) { proxy in
+            MeasuredFrame(rect: proxy.frame(in: .global), generation: generation)
+        } action: { action($0.rect) }
     }
 }
 

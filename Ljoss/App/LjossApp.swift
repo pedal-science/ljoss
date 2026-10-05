@@ -1,7 +1,7 @@
 import SwiftUI
 
 @main
-struct RigDesignerApp: App {
+struct LjossApp: App {
     #if os(macOS)
     /// Only so the local engine's child process is stopped on the way out; see `AppDelegate`.
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
