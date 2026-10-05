@@ -48,6 +48,18 @@ changed" is asserted in `Tests/AssetTests.swift` rather than claimed in a commen
 second scan of an unchanged library is one that parsed zero files. The daemon keeps the
 same cache for the same reason, down to the sub-second timestamp.
 
+**The stored library is what the scan is given as that cache**, which is what makes the
+cache outlive the process: the app opens the store at launch, hands the entries it finds
+there to the scan, and a relaunch of an unchanged library parses nothing. Because that
+equality is the whole mechanism, a store that rounded the date would quietly mean "every
+file changed on every launch" — so what comes back out is asserted to equal what went in
+(`Tests/AssetStoreTests.swift`), sub-second dates included.
+
+Writing back is the same rule from the other side. `AssetSync` reconciles the scan's
+result against what the store holds and touches only the rows that differ, so a scan of an
+unchanged library writes nothing either. One save covers the folders and the files in
+them, because they belong together.
+
 Three decisions worth recording, because the alternatives are all defensible:
 
 - **A folder that is missing is an empty library, not a failure.** It contributes no
@@ -57,10 +69,17 @@ Three decisions worth recording, because the alternatives are all defensible:
   comes back re-adds them with a fresh "added" date either way.
 - **A folder configured inside another does not list its files twice.** Files are
   de-duplicated by resolved path, and the first folder in the list keeps them.
-- **Nothing watches a folder and nothing scans on a timer.** The scan runs on the first
-  appearance of the page in a session, when the folder list changes, and when the user
-  presses Rescan. The daemon takes the same line: a library that changes underneath is
-  something an operator should be able to do deliberately.
+- **Nothing watches a folder and nothing scans on a timer.** The scan runs when the app
+  starts, when the folder list changes, and when the user presses Rescan. The daemon takes
+  the same line: a library that changes underneath is something an operator should be able
+  to do deliberately.
+
+The launch scan is **awaited** before anything is pointed at a device. The local engine
+gives the daemon the folder the scan found the user's models in
+(`Engine/LocalEnginePlan.swift`), so starting it first would hand it yesterday's answer;
+and because unchanged files are carried over from the store, waiting costs a walk of the
+folders rather than a read of the library. A second window finds the work already done —
+the scan is once per session, not once per window.
 
 Scanning runs off the main actor in one detached task, with security-scoped access
 started and stopped inside the folder it belongs to — which is why the walk is
@@ -143,15 +162,42 @@ user is reading it, so it keeps its shape and shows information only when there 
 
 ## Stored where
 
-One JSON file, `~/Library/Application Support/Ljoss/AssetLibrary.json`, written
-atomically on every change. One file rather than one per entry, unlike rigs: this is app
-state rather than a document someone would mind losing one of, and a corrupt file starts
-an empty library with a message rather than silently listing nothing.
+SwiftData, in `~/Library/Application Support/Ljoss/AssetLibrary.store` — one store rather
+than one file per entry, unlike the rigs: this is app state rather than a document someone
+would mind losing one of.
 
-`AssetKind` decodes an unknown raw value as a model instead of throwing, on the same
-argument `docs/ARCHITECTURE.md` makes for `Block.componentID` being a `String`: a file
-written by a build that knows a kind this one does not must not cost the user their
-folder list.
+Two `@Model` classes mirror the two value types: `AssetRootRecord` and
+`AssetEntryRecord`. The value types stay the app's own representation, and the conversion
+happens at this boundary, for one reason: an `AssetEntry` crosses into the scan's detached
+task and is what the ordering sorts and the local engine reads, and a model object belongs
+to the context that made it. The records are keyed by the same ids the scan reckons with
+(`@Attribute(.unique)`), which is what lets a write touch only the rows that changed.
+
+**What is read back has a stated order, because a fetch has none.** Folders come back in
+the order they were added — that list is the user's, and the local engine gives the daemon
+the *first* folder that holds a model, so an order that changed between launches would
+change the daemon's library. Files come back by id, which is the order `AssetScan` leaves a
+scan's own result in, so a list read from the store and a list just walked are the same
+list in the same order.
+
+`AssetKind` is stored as its raw string, and an unknown raw value reads back as a model
+rather than throwing, on the same argument `docs/ARCHITECTURE.md` makes for
+`Block.componentID` being a `String`: a file written by a build that knows a kind this one
+does not must not cost the user their folder list.
+
+**A library an older build wrote as JSON is imported once and deleted.** The build before
+this one kept `AssetLibrary.json`; on the first launch whose store has never held
+anything, the file is read, written into the store, and then deleted. It exists because
+the folder list and each file's first-seen day are the two things a rescan cannot
+rebuild — and it is deleted because leaving it would resurrect the folders of a user who
+has deliberately emptied the library, which is worse than an empty list. It is skipped
+entirely when the store is the in-memory fallback below: deleting a file on behalf of a
+store that cannot take its place would be losing the only copy of that list.
+
+A store that cannot be opened is a store the app works without. The container falls back to
+one that is not written anywhere, the page says so, and the library still lists and scans —
+it simply does not survive the session. That message is not cleared by a later write,
+because nothing has actually been saved.
 
 ## What is not here
 

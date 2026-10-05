@@ -72,7 +72,6 @@ struct ModelsAndIRsSettingsView: View {
                           allowsMultipleSelection: true) { result in
                 add(result)
             }
-                          .onAppear { assets.scanIfNeeded() }
             ScrollView {
                 results
             }

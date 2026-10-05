@@ -38,7 +38,10 @@ xcodebuild -project Ljoss.xcodeproj -scheme Ljoss -destination 'platform=iOS Sim
 Assertions for the tree edits, the drag slot mapping, wrapped-row layout and hit
 testing, and the engine encoder and wire format — the places where a mistake is
 silent rather than a crash. None of it depends on SwiftUI, so this compiles with
-plain `swiftc`: no test host, no scheme, a few seconds.
+plain `swiftc`: no test host, no scheme, a few seconds. The asset library's store is
+in there too, which does need SwiftData: the runner points the compiler at Xcode's
+platform plugin directory as well as the toolchain's, because `@Model`'s macro is
+not in the second one.
 
 Two things cannot be asserted against a fixture, because they are claims about
 another process:
@@ -84,7 +87,7 @@ bugs.
 | `Ljoss/Store/` | Rig persistence (one JSON file per rig) and the starter rigs. |
 | `Ljoss/Catalogue/` | 102 effect blocks with parameters, plus the input/output and split/merge specs. No SwiftUI. |
 | `Ljoss/Engine/` | The namchain client. The wire types, the block mapping, the tree-to-graph encoder, the protocol types and the framing have no SwiftUI and no Network, so they compile into the test runner; the client, settings and session sit above them. |
-| `Ljoss/Assets/` | The user's own models and impulse responses: the configured folders, the bounded sniff of a `.nam` or `.wav`, the brand table, the scan and its ordering, and the store above them. The five lower files have no SwiftUI, so they compile into the test runner. |
+| `Ljoss/Assets/` | The user's own models and impulse responses: the configured folders, the bounded sniff of a `.nam` or `.wav`, the brand table, the scan and its ordering, reconciling a scan against what is stored, and the two stores above them — the observable one and its SwiftData persistence. The six lower files have no SwiftUI, so they compile into the test runner. |
 | `Tests/` | Model-layer, flow-geometry, encoder and wire assertions, and their runner. |
 | `Tools/` | Two things that need a real engine rather than a fixture: a dump of what the encoder would send, and a handshake-and-apply against a running daemon. |
 
@@ -99,7 +102,9 @@ wrap, the device controls, and the settings view — the areas list swapping the
 library out, the Hardware page the status popover and the connection sheet were folded
 into, and the Models & IRs page driven against real folders of captures: brands read
 from metadata and guessed from filenames, models before impulse responses, `Unknown`
-last, and the scan indicator appearing, reporting and clearing.
+last, and the scan indicator appearing, reporting and clearing. The library's store is
+exercised the same way: a real 1603-file library brought across from the JSON an older
+build wrote, and a launch that then reports nothing changed having read no file.
 
 **The iOS touch path is unverified.** It compiles and the shell adapts, but the
 long-press-to-lift gesture has not been run on a device or simulator.

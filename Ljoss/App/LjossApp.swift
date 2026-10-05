@@ -48,6 +48,13 @@ struct LjossApp: App {
                 .environment(localEngine)
                 .environment(assets)
                 .task {
+                    // The model folders are scanned before anything is pointed at a device: the
+                    // local engine gives the daemon the folder the scan found the user's models
+                    // in, and waiting for it here is what keeps that from being yesterday's
+                    // answer. Files that have not changed are carried over from the store
+                    // unread, so this costs a walk of the folders.
+                    await assets.scanAtLaunch()
+
                     // One device at a time, and the choice is made *before* the session is pointed at
                     // anything. A user who asked for this Mac starts namchaind and connects to it; a
                     // user with a board configured connects to that. Doing it the other way round —

@@ -37,10 +37,12 @@ the fast test set, while `Engine/LocalEngine.swift` does nothing but spawn a pro
 it. See [ENGINE.md](ENGINE.md#the-local-engine).
 
 `Assets/` is the odd one: it uses `AssetKind` from `Engine/BlockMapping.swift`, because
-a model and an impulse response are one idea and two enums for it would drift. The five
-files that do the work — the entries, the sniff, the make table, the scan and the
-ordering — are SwiftUI-free and in the fast test set; `AssetLibrary.swift` is the
-observable store above them, beside `RigLibrary`. See [ASSETS.md](ASSETS.md).
+a model and an impulse response are one idea and two enums for it would drift. The six
+files that do the work — the entries, the sniff, the make table, the scan, the ordering and
+reconciling a scan against what is stored — are SwiftUI-free and in the fast test set;
+`AssetLibrary.swift` is the observable store above them, beside `RigLibrary`, and
+`AssetStore.swift` is its SwiftData persistence. Neither of those two is in the fast set,
+though the store's records reach it through the store tests. See [ASSETS.md](ASSETS.md).
 
 ## The routing model
 

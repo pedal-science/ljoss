@@ -7,6 +7,10 @@ import Observation
 /// It is **not** the device's library. A rig still names its model and impulse response
 /// by the id `engine.assets` gave it; this is a listing of the user's own files, and
 /// nothing here is sent anywhere — see `docs/ASSETS.md`.
+///
+/// What it holds is stored in SwiftData (`AssetStore`) and read back when the app starts,
+/// which is also the scan's cache: a file whose size and modification date match what was
+/// stored is carried over without being read again.
 @MainActor
 @Observable
 final class AssetLibrary {
@@ -34,12 +38,19 @@ final class AssetLibrary {
     private static let finishedLinger = Duration.seconds(5)
 
     private let directory: URL
+    /// The library between launches: the store holds it, the value types above are what
+    /// everything reads — the scan is handed them as its cache, and they are what comes
+    /// back when the app starts (`docs/ASSETS.md`).
+    private let store: AssetStore
     private var scanTask: Task<Void, Never>?
     private var clearTask: Task<Void, Never>?
     /// Bumped for every scan, so a superseded scan's result is dropped rather than
     /// published over a newer one.
     private var generation = 0
     private var hasScanned = false
+
+    /// What an older build wrote the library to, before the store existed.
+    private static let legacyFileName = "AssetLibrary.json"
 
     // MARK: - Setup
 
@@ -52,23 +63,17 @@ final class AssetLibrary {
             AppDirectories.migrateLegacyFolder()
             self.directory = AppDirectories.support()
         }
+
+        // A store whose file cannot be opened is worth saying so about, and not worth
+        // failing over: the library still works for this session, out of memory, and the
+        // complaint below is shown where the page can see it.
+        let opened = AssetStore.open(directory: self.directory)
+        store = opened.store
         load()
+        if let failure = opened.failure {
+            lastError = "Your model folders could not be opened: \(failure.localizedDescription)"
+        }
     }
-
-    private var storeURL: URL { directory.appending(path: "AssetLibrary.json") }
-
-    private static let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        e.dateEncodingStrategy = .iso8601
-        return e
-    }()
-
-    private static let decoder: JSONDecoder = {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
-    }()
 
     // MARK: - Bookmarks
 
@@ -91,27 +96,32 @@ final class AssetLibrary {
         #endif
     }
 
-    /// One file, not one per entry: unlike a rig, this is app state rather than a
-    /// document someone would mind losing one of, and the atomic write is what keeps a
-    /// half-written file from replacing a good one.
+    /// Write the folders, and what was found in them, into the store.
+    ///
+    /// Only the rows that differ are touched, so this is safe to call from every path
+    /// that changes either list, and saving the same library twice writes nothing at all
+    /// (`AssetSync`).
     func save() {
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let snapshot = AssetSnapshot(version: 1, roots: roots, entries: entries, savedAt: Date())
-            try Self.encoder.encode(snapshot).write(to: storeURL, options: .atomic)
-            lastError = nil
+            try store.write(roots: roots, entries: entries)
+            // A write that went somewhere answers whatever went wrong before it. A write
+            // to the in-memory fallback has saved nothing, so a complaint about that stays
+            // where the user can see it.
+            if store.isPersistent { lastError = nil }
         } catch {
             lastError = "Your model folders could not be saved: \(error.localizedDescription)"
         }
     }
 
     func load() {
-        // Nothing stored yet is an empty library, not a failure.
-        guard let data = try? Data(contentsOf: storeURL) else { return }
         do {
-            let snapshot = try Self.decoder.decode(AssetSnapshot.self, from: data)
-            roots = snapshot.roots
-            entries = snapshot.entries
+            // A library an older build wrote as JSON is brought across once, into a store
+            // that has never held anything, and the file is deleted afterwards: leaving it
+            // would resurrect the folders of a user who has deliberately emptied the
+            // library, and a folder list is the one thing a rescan cannot rebuild.
+            try store.importLegacyJSON(at: directory.appending(path: Self.legacyFileName))
+            roots = try store.roots()
+            entries = try store.entries()
             refreshRootPaths()
             lastError = nil
         } catch {
@@ -253,14 +263,20 @@ final class AssetLibrary {
         }
     }
 
-    /// Scan the first time the page is opened in a session.
+    /// Scan once, when the app starts, and wait for it.
     ///
-    /// Not at launch, and not on a timer: a library nobody has looked at has not asked
-    /// to be read, and nothing here watches a folder — the daemon's rule, for the same
-    /// reason (`docs/assets.md`).
-    func scanIfNeeded() {
-        guard !hasScanned, !state.isScanning else { return }
-        rescan()
+    /// At launch rather than when the page is opened, and awaited rather than merely
+    /// started: the local engine picks the folder it gives the daemon's model library
+    /// from what the scan found, so a daemon started first would be handed yesterday's
+    /// answer. The work is a walk of the folders — files that have not changed are carried
+    /// over unread — so a launch costs a directory listing, not a library read.
+    ///
+    /// Not on a timer, and not when the page opens: a second window finds the work already
+    /// done, and nothing here watches a folder — the daemon's rule, for the same reason
+    /// (`docs/ASSETS.md`).
+    func scanAtLaunch() async {
+        if !hasScanned, !state.isScanning { rescan() }
+        await scanTask?.value
     }
 
     private func finish(_ stats: AssetScanStats) {

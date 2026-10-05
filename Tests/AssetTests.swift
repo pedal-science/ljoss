@@ -206,6 +206,119 @@ func testAssetScanning() {
     let notAFolder = ScanRoot(id: UUID(), url: root.appending(path: "readme.txt"))
     let sixth = AssetScan.run(roots: [notAFolder], previous: [], now: Date())
     check(sixth.issues.count == 1 && sixth.entries.isEmpty, "a file where a folder was expected is reported, not read")
+
+    // The store's side of the same rule: what a scan found and what the store already
+    // holds is the same list, so a launch scan of an unchanged library writes nothing
+    // either.
+    check(AssetSync.changes(from: fourth.entries, to: fourth.entries).isEmpty,
+          "a scan's own result is not something the store has to rewrite")
+}
+
+// MARK: - The library an older build left behind
+
+func testAssetLibraryImport() {
+    print("reading the library an older build wrote")
+    let rootID = UUID()
+    let json = """
+    {
+      "version": 1,
+      "savedAt": "2026-02-03T04:05:06Z",
+      "roots": [
+        {"id": "\(rootID.uuidString)", "path": "/Users/someone/models", "bookmark": "AAAA",
+         "isSecurityScoped": true, "addedAt": "2026-02-03T04:05:06Z"}
+      ],
+      "entries": [
+        {"rootID": "\(rootID.uuidString)", "relative": "tweed/deluxe.nam", "kind": "model",
+         "name": "Deluxe", "make": "Fender", "model": "Deluxe Reverb", "architecture": "WaveNet",
+         "sampleRate": 48000, "channels": null, "frames": null, "size": 1234,
+         "modified": "2026-02-03T04:05:06Z", "addedAt": "2026-02-03T04:05:06Z"},
+        {"rootID": "\(rootID.uuidString)", "relative": "cabs/v30.wav", "kind": "neural",
+         "name": "V30", "make": "Celestion", "model": null, "architecture": null,
+         "sampleRate": 44100, "channels": 2, "frames": 2048, "size": 4096,
+         "modified": "2026-02-03T04:05:06Z", "addedAt": "2026-02-03T04:05:06Z"}
+      ]
+    }
+    """
+
+    do {
+        let snapshot = try AssetSnapshot.decodeLegacy(Data(json.utf8))
+        check(snapshot.roots.count == 1 && snapshot.entries.count == 2,
+              "the folder the older build had, and the files in it")
+        check(snapshot.roots[0].id == rootID && snapshot.roots[0].path == "/Users/someone/models",
+              "…with the path a row shows")
+        check(snapshot.roots[0].bookmark != nil && snapshot.roots[0].isSecurityScoped,
+              "…and the bookmark that is what actually survives a relaunch")
+        check(snapshot.entries[0].relative == "tweed/deluxe.nam" && snapshot.entries[0].size == 1234,
+              "…and each file with what the last scan knew about it")
+        check(snapshot.entries[0].id == "\(rootID.uuidString)/tweed/deluxe.nam",
+              "an imported file keeps the identity the scan reckons with")
+
+        let written = ISO8601DateFormatter().date(from: "2026-02-03T04:05:06Z")
+        check(written != nil && snapshot.roots[0].addedAt == written,
+              "dates are read as the writer wrote them, or every file would look new")
+
+        // The rule the JSON store kept, and the reason the store keeps it: a file written
+        // by a build that knows a kind this one does not must not cost the user their
+        // folder list.
+        check(snapshot.entries[1].kind == .model,
+              "a kind this build does not know reads as a model")
+        check(snapshot.entries[1].frames == 2048 && snapshot.entries[1].sampleRate == 44100,
+              "…and its own numbers come with it")
+    } catch {
+        check(false, "the library an older build wrote is readable: \(error)")
+    }
+
+    do {
+        _ = try AssetSnapshot.decodeLegacy(Data("this is not the library".utf8))
+        check(false, "a file that is not the library is refused rather than half-read")
+    } catch {
+        check(true, "a file that is not the library is refused rather than half-read")
+    }
+}
+
+// MARK: - What the store has to write
+
+func testAssetChanges() {
+    print("writing back only what changed")
+
+    let root = UUID()
+    let base = Date(timeIntervalSince1970: 1_700_000_000)
+    func entry(_ relative: String, size: Int = 100, modified: TimeInterval = 0) -> AssetEntry {
+        AssetEntry(rootID: root, relative: relative, kind: .model, name: relative,
+                   make: "Fender", model: nil, architecture: nil, sampleRate: nil,
+                   channels: nil, frames: nil, size: size,
+                   modified: base.addingTimeInterval(modified), addedAt: base)
+    }
+
+    let stored = [entry("a.nam"), entry("b.nam")]
+    check(AssetSync.changes(from: stored, to: stored).isEmpty,
+          "a library that is exactly what is stored is nothing to write")
+
+    let grown = [entry("a.nam"), entry("b.nam", size: 200)]
+    let updated = AssetSync.changes(from: stored, to: grown)
+    check(updated.updated.map(\.relative) == ["b.nam"],
+          "a file that changed is the one row rewritten")
+    check(updated.inserted.isEmpty && updated.removedIDs.isEmpty, "…and nothing else is touched")
+
+    check(AssetSync.changes(from: stored, to: [entry("a.nam"), entry("b.nam", modified: 10)])
+            .updated.map(\.relative) == ["b.nam"],
+          "a date that moved is a change too — it is half of what the scan's own cache keys on")
+
+    let withNew = AssetSync.changes(from: stored, to: stored + [entry("c.nam")])
+    check(withNew.inserted.map(\.relative) == ["c.nam"],
+          "a file that was not there before is a row to insert")
+    check(withNew.updated.isEmpty && withNew.removedIDs.isEmpty, "…and nothing else")
+
+    check(AssetSync.changes(from: stored, to: [entry("a.nam")]).removedIDs == ["\(root.uuidString)/b.nam"],
+          "a file that is gone is a row to delete")
+    check(AssetSync.changes(from: stored, to: []).removedIDs.count == stored.count,
+          "…and a folder that went takes every row in it")
+
+    // A file that moved folder is a different entry, not an edit: identity is the path
+    // under the root, which is what stops a container that moved from rewriting the lot.
+    let moved = AssetSync.changes(from: stored, to: [entry("a.nam"), entry("moved/b.nam")])
+    check(moved.inserted.count == 1 && moved.removedIDs.count == 1 && moved.updated.isEmpty,
+          "a file under a different path is a new row and a deleted one")
 }
 
 // MARK: - Sections and order

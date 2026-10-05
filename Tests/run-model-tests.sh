@@ -2,7 +2,7 @@
 # Compile and run the model-layer and flow-geometry assertions.
 #
 # None of these sources depend on SwiftUI, so this needs nothing from Xcode beyond a
-# toolchain: no test host, no scheme, a few seconds.
+# toolchain and its macro plugins: no test host, no scheme, a few seconds.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -37,12 +37,15 @@ sources=(
   "$root"/Ljoss/Assets/MakeHeuristics.swift
   "$root"/Ljoss/Assets/AssetScan.swift
   "$root"/Ljoss/Assets/AssetOrder.swift
+  "$root"/Ljoss/Assets/AssetSync.swift
+  "$root"/Ljoss/Assets/AssetStore.swift
   "$root"/Tests/ModelTests.swift
   "$root"/Tests/FlowTests.swift
   "$root"/Tests/EncoderTests.swift
   "$root"/Tests/WireTests.swift
   "$root"/Tests/EditTests.swift
   "$root"/Tests/AssetTests.swift
+  "$root"/Tests/AssetStoreTests.swift
   "$root"/Tests/LocalEngineTests.swift
   "$root"/Tests/ExportTests.swift
   "$root"/Tests/main.swift
@@ -54,10 +57,17 @@ sources=(
 # unavailable the compiler reports "could not be found for macro 'Observable()'", which
 # reads like a bad source file and is not. Resolved from the active toolchain so a
 # different Xcode needs no edit here.
+#
+# Two directories, because the plugins are not all in one place: `@Model`, which the asset
+# store uses, comes from the platform's own set, beside the frameworks it belongs to
+# (libSwiftDataMacros.dylib). Miss it and the failure has the same shape as the one above,
+# for 'Model()'.
 toolchain="$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain"
 plugins="$toolchain/usr/lib/swift/host/plugins"
+platform_plugins="$(xcode-select -p)/Platforms/MacOSX.platform/Developer/usr/lib/swift/host/plugins"
 extra=()
-if [[ -d "$plugins" ]]; then extra=(-plugin-path "$plugins"); fi
+if [[ -d "$plugins" ]]; then extra+=(-plugin-path "$plugins"); fi
+if [[ -d "$platform_plugins" ]]; then extra+=(-plugin-path "$platform_plugins"); fi
 
 swiftc -swift-version 6 "${extra[@]}" -o "$out/model-tests" "${sources[@]}"
 "$out/model-tests"

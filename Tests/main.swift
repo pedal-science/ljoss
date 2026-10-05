@@ -39,6 +39,13 @@ testAssetSniffing()
 testMakeHeuristics()
 testAssetScanning()
 testAssetOrdering()
+testAssetLibraryImport()
+testAssetChanges()
+MainActor.assumeIsolated {
+    testAssetStoreRoundTrip()
+    testAssetStoreIsTheScanCacheAcrossLaunches()
+    testAssetStoreImportsAnOlderLibraryOnce()
+}
 testLocalEngineSettingsRoundTrip()
 testLocalEngineResolvesItsPaths()
 testLocalEngineReusesAToken()

@@ -6,6 +6,9 @@ import Foundation
 // library, listed by `engine.assets`, and a rig names things in **that** one. The two
 // are deliberately separate for now: nothing here is sent to namchain, and the
 // inspector keeps picking from the device's ids (`docs/ASSETS.md`).
+//
+// These are the values the app works with: they cross into the scan's detached task and
+// they are what the ordering sorts. What holds them between launches is `AssetStore`.
 
 // MARK: - A folder the library is kept in
 
@@ -108,12 +111,32 @@ struct AssetEntry: Codable, Hashable, Sendable, Identifiable {
 
 // MARK: - What is on disk
 
-/// The whole library as it is stored: the folders, and what was last found in them.
+/// The whole library as an older build stored it: the folders, and what was last found
+/// in them.
+///
+/// Nothing writes this any more — SwiftData holds the library (`AssetStore`) — but a build
+/// before the store wrote it to `AssetLibrary.json`, and it is read once and deleted,
+/// because the folder list and the day each file was first seen are the two things a
+/// rescan cannot rebuild. The `Codable` conformances above are what read it; they are kept
+/// for this and for nothing else.
 struct AssetSnapshot: Codable, Sendable {
     var version: Int = 1
     var roots: [AssetRoot] = []
     var entries: [AssetEntry] = []
     var savedAt: Date = .distantPast
+}
+
+extension AssetSnapshot {
+    /// Read the JSON an older build wrote.
+    ///
+    /// Here rather than in the store so the old format is assertable without a SwiftData
+    /// container (`Tests/AssetTests.swift`), and so the date strategy the writer used is
+    /// stated beside the fields it applies to rather than at one call site.
+    static func decodeLegacy(_ data: Data) throws -> AssetSnapshot {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(AssetSnapshot.self, from: data)
+    }
 }
 
 // MARK: - Reading a kind back
