@@ -207,9 +207,10 @@ struct LocalEnginePlan: Equatable, Sendable {
 
     /// \brief The `namchaind` to run when none was named.
     ///
-    /// The three places a working copy is actually found: beside this checkout's sibling `namchain`
-    /// in its build directory, and the two prefixes a `make install` uses. Guessing is confined to
-    /// this function so that "which binary did it run" always has an answer.
+    /// The places a working copy is actually found: this file's own checkout's sibling `namchain`
+    /// in its build directory, the workspace's `namchain`, and the two prefixes a `make install`
+    /// uses. Guessing is confined to this function so that "which binary did it run" always has an
+    /// answer.
     ///
     /// There is no home directory to guess at on iOS — the platform has no `namchaind` and no
     /// CoreAudio output a child process could use — so those two candidates are macOS-only and the
@@ -217,8 +218,14 @@ struct LocalEnginePlan: Equatable, Sendable {
     static func defaultLauncher(fileManager: FileManager = .default) -> URL? {
         var candidates: [URL] = []
         #if os(macOS)
+        // This file's own path is <workspace>/ljoss/Ljoss/Engine/, so four parents up is the
+        // workspace: the sibling namchain is found there however the workspace is named or moved.
+        candidates.append(URL(filePath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "namchain/build/namchaind"))
         let home = fileManager.homeDirectoryForCurrentUser
-        candidates.append(home.appending(path: "code.local/namchain/build/namchaind"))
+        candidates.append(home.appending(path: "code.local/pedal/namchain/build/namchaind"))
         candidates.append(home.appending(path: "namchain/build/namchaind"))
         #endif
         candidates.append(URL(filePath: "/usr/local/bin/namchaind"))

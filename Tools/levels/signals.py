@@ -87,7 +87,7 @@ def log_sweep(seconds, amplitude, rate=RATE, low=20.0, high=20000.0):
 # hands do. This is a DI recording (mono, 48 kHz, peak -0.1 dBFS, crest factor 17.6 dB) from
 # NAMBench's `audio-input/`; the campaign records its hash so a run says which one it used. Point
 # GUITAR_DI somewhere else for a different one.
-GUITAR_DI = os.environ.get("GUITAR_DI", os.path.expanduser("~/code.local/NAMBench/audio-input/input.wav"))
+GUITAR_DI = os.environ.get("GUITAR_DI", os.path.expanduser("~/code.local/pedal/NAMBench/audio-input/input.wav"))
 
 
 def guitar(seconds, amplitude, rate=RATE, source=None):

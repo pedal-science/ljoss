@@ -26,6 +26,6 @@ Checks that need a real daemon are tools, not tests: `Tools/dump-engine-document
   record decisions that could have gone the other way. Read the relevant one before
   "simplifying" something.
 - LocalEngine and model-finder work is on the `local-engine` branch, not `main`.
-- The checkout is `~/code.local/ljoss`, and the app, the project and the Xcode target are all called Ljoss.
+- The checkout is `~/code.local/pedal/ljoss`, and the app, the project and the Xcode target are all called Ljoss.
 
-System context (the pedal, how the repos fit together, the plan): `~/code.local/pedal.project`, starting at its `CLAUDE.md` and `docs/working-across-repos.md`.
+System context (the pedal, how the repos fit together, the plan): `~/code.local/pedal/pedal.project`, starting at its `CLAUDE.md` and `docs/working-across-repos.md`.
