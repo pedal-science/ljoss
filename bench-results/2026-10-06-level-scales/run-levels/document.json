@@ -1,0 +1,67 @@
+{
+ "chains": [
+  {
+   "connections": [
+    {
+     "from": "in",
+     "from_port": 0,
+     "to": "49710739-A13C-47FA-B150-686668530AF1-gain",
+     "to_port": 0
+    },
+    {
+     "from": "49710739-A13C-47FA-B150-686668530AF1-gain",
+     "from_port": 0,
+     "to": "3CEA6DFE-3E11-4528-9D53-73E7BCFBFD64-gain",
+     "to_port": 0
+    },
+    {
+     "from": "3CEA6DFE-3E11-4528-9D53-73E7BCFBFD64-gain",
+     "from_port": 0,
+     "to": "E19EF75D-8AFA-4E8E-8BB5-405C721E4A61-gain",
+     "to_port": 0
+    },
+    {
+     "from": "E19EF75D-8AFA-4E8E-8BB5-405C721E4A61-gain",
+     "from_port": 0,
+     "to": "out",
+     "to_port": 0
+    }
+   ],
+   "id": "185C998C-B0B9-4A27-8CD3-AD587731C7E5",
+   "input_channel": 0,
+   "name": "Guitar",
+   "nodes": [
+    {
+     "element": "10DF53CF-4EDF-4FD0-BE91-7E528013FB7B",
+     "id": "in",
+     "type": "nc.input"
+    },
+    {
+     "element": "49710739-A13C-47FA-B150-686668530AF1",
+     "gain_db": 0,
+     "id": "49710739-A13C-47FA-B150-686668530AF1-gain",
+     "type": "nc.gain"
+    },
+    {
+     "element": "3CEA6DFE-3E11-4528-9D53-73E7BCFBFD64",
+     "gain_db": -12,
+     "id": "3CEA6DFE-3E11-4528-9D53-73E7BCFBFD64-gain",
+     "type": "nc.gain"
+    },
+    {
+     "element": "E19EF75D-8AFA-4E8E-8BB5-405C721E4A61",
+     "gain_db": 12,
+     "id": "E19EF75D-8AFA-4E8E-8BB5-405C721E4A61-gain",
+     "type": "nc.gain"
+    },
+    {
+     "element": "FE504144-C72D-4259-9E53-BB4B79DFE0E7",
+     "id": "out",
+     "type": "nc.output"
+    }
+   ],
+   "output_channel": 0
+  }
+ ],
+ "name": "Levels"
+}

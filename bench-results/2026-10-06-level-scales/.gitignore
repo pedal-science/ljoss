@@ -1,0 +1,6 @@
+# The raw audio is evidence, not history: it is a gigabyte of converter streams that re-running
+# `Tools/levels/campaign.py` reproduces exactly. The numbers derived from all of it are in
+# `run-*/dataset.json`, `run-*/run.json` and `run-*/polls.jsonl`, which are small and are kept.
+# Everything here stays on disk for inspection; only these two directories are kept out of git.
+run-*/pedal-record/
+run-*/signals/

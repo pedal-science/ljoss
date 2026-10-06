@@ -1,0 +1,57 @@
+{
+ "chains": [
+  {
+   "connections": [
+    {
+     "from": "in",
+     "from_port": 0,
+     "to": "A7F4DD6C-22A5-46DE-9155-11D47278311F-nam",
+     "to_port": 0
+    },
+    {
+     "from": "A7F4DD6C-22A5-46DE-9155-11D47278311F-nam",
+     "from_port": 0,
+     "to": "A7F4DD6C-22A5-46DE-9155-11D47278311F-tone",
+     "to_port": 0
+    },
+    {
+     "from": "A7F4DD6C-22A5-46DE-9155-11D47278311F-tone",
+     "from_port": 0,
+     "to": "out",
+     "to_port": 0
+    }
+   ],
+   "id": "847232A3-97EF-4C9C-BFD8-60DE5D1DFAA2",
+   "input_channel": 0,
+   "name": "Guitar",
+   "nodes": [
+    {
+     "element": "9FB6F5DC-BEAC-45D6-AA6A-D67D84A8A0E3",
+     "id": "in",
+     "type": "nc.input"
+    },
+    {
+     "element": "A7F4DD6C-22A5-46DE-9155-11D47278311F",
+     "id": "A7F4DD6C-22A5-46DE-9155-11D47278311F-nam",
+     "model": "A2",
+     "type": "nc.nam"
+    },
+    {
+     "bass": 0,
+     "element": "A7F4DD6C-22A5-46DE-9155-11D47278311F",
+     "id": "A7F4DD6C-22A5-46DE-9155-11D47278311F-tone",
+     "mid": 0,
+     "treble": 2.4000000000000004,
+     "type": "fx.amp.tonestack"
+    },
+    {
+     "element": "37EF5B33-1AE4-4B7E-B58F-48721E9573AB",
+     "id": "out",
+     "type": "nc.output"
+    }
+   ],
+   "output_channel": 0
+  }
+ ],
+ "name": "Amp"
+}

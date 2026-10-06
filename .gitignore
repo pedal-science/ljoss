@@ -12,3 +12,8 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Python: the level campaign's tools are scripts, and every run of one leaves a bytecode cache
+# beside it. Nothing here is a package, so nothing here needs committing.
+__pycache__/
+*.py[cod]

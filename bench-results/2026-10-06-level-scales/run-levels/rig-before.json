@@ -1,0 +1,95 @@
+{
+ "chains": [
+  {
+   "connections": [
+    {
+     "from": "in",
+     "from_port": 0,
+     "to": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-nam",
+     "to_port": 0
+    },
+    {
+     "from": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-nam",
+     "from_port": 0,
+     "to": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-tone",
+     "to_port": 0
+    },
+    {
+     "from": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-tone",
+     "from_port": 0,
+     "to": "84A502B0-D856-49BF-AF0D-C5BC41409232-gain",
+     "to_port": 0
+    },
+    {
+     "from": "84A502B0-D856-49BF-AF0D-C5BC41409232-gain",
+     "from_port": 0,
+     "to": "27D497F9-1327-4AEC-AFD2-286BA194BF7B-gain",
+     "to_port": 0
+    },
+    {
+     "from": "27D497F9-1327-4AEC-AFD2-286BA194BF7B-gain",
+     "from_port": 0,
+     "to": "9BE39FF0-600B-4AD8-959D-54C7E5B2CEB5-level",
+     "to_port": 0
+    },
+    {
+     "from": "9BE39FF0-600B-4AD8-959D-54C7E5B2CEB5-level",
+     "from_port": 0,
+     "to": "out",
+     "to_port": 0
+    }
+   ],
+   "id": "A358C9F4-9DD4-48E7-B12E-A0C69ED4E157",
+   "input_channel": 0,
+   "name": "Guitar",
+   "nodes": [
+    {
+     "element": "5976AD1D-F963-4DD0-8294-D1C8933D48DA",
+     "id": "in",
+     "type": "nc.input"
+    },
+    {
+     "bypass": true,
+     "element": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63",
+     "id": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-nam",
+     "model": "NAM Ampeg VT-40/Ampeg VT-40 - Vol 6, Bass 6, Mid 5, Treble 8, Dumble pedal, M160",
+     "type": "nc.nam"
+    },
+    {
+     "bass": 0.0,
+     "bypass": true,
+     "element": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63",
+     "id": "4C766F44-CA3E-4CEC-BDF1-3FF8F9FFDC63-tone",
+     "mid": 0.0,
+     "treble": 2.4000000000000004,
+     "type": "fx.amp.tonestack"
+    },
+    {
+     "element": "84A502B0-D856-49BF-AF0D-C5BC41409232",
+     "gain_db": 7.714416058394157,
+     "id": "84A502B0-D856-49BF-AF0D-C5BC41409232-gain",
+     "type": "nc.gain"
+    },
+    {
+     "element": "27D497F9-1327-4AEC-AFD2-286BA194BF7B",
+     "gain_db": -10.516423357664234,
+     "id": "27D497F9-1327-4AEC-AFD2-286BA194BF7B-gain",
+     "type": "nc.gain"
+    },
+    {
+     "element": "9BE39FF0-600B-4AD8-959D-54C7E5B2CEB5",
+     "gain_db": -0.004105839416055801,
+     "id": "9BE39FF0-600B-4AD8-959D-54C7E5B2CEB5-level",
+     "type": "nc.gain"
+    },
+    {
+     "element": "9BE39FF0-600B-4AD8-959D-54C7E5B2CEB5",
+     "id": "out",
+     "type": "nc.output"
+    }
+   ],
+   "output_channel": 0
+  }
+ ],
+ "name": "Crunch Lead"
+}

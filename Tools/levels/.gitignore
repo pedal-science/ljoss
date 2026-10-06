@@ -1,0 +1,7 @@
+# The built tool: `README.md` has the one-line clang invocation that makes it, and a committed
+# arm64 Mach-O would be a binary in a Swift repo that no other machine can run.
+/sslgen
+
+# Bytecode from running the scripts. The repository's own .gitignore covers this too; it is here so
+# the directory stands on its own if it is ever copied out.
+__pycache__/

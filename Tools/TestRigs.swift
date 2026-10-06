@@ -69,11 +69,30 @@ enum TestRigs {
         return rig
     }
 
+    /// One chain of three Gains at values chosen so every node's reported level is a prediction
+    /// rather than a tolerance: 0 dB (the node's level *is* the chain's input), −12 dB, +12 dB, so
+    /// the three nodes and the chain output should read `in`, `in − 12`, `in` and `in`.
+    ///
+    /// This is the rig the level campaign applies (`Tools/levels/campaign.py`), which is why the
+    /// values are round numbers: a graph of reported node levels against input level is a set of
+    /// parallel lines, and any node that is not parallel is a bug in the level plumbing rather than
+    /// a property of the audio.
+    static func levels() -> Rig {
+        var rig = RigFactory.emptyRig(name: "Levels", layout: .single)
+        rig.chains[0].elements = [0.0, -12.0, 12.0].map { decibels in
+            var block = Block(componentID: "util.gain")
+            block.values["gain"] = .number(decibels)
+            return .block(block)
+        }
+        return rig
+    }
+
     static let byName: [String: @Sendable () -> Rig] = [
         "empty": empty,
         "gain0": { gain(decibels: nil) },
         "gain6": { gain(decibels: 6.0) },
         "amp": { amp() },
+        "levels": levels,
         "split2": { split(lanes: 2) },
         "split3": { split(lanes: 3) },
         // x + (−x): the lanes cancel to the sample, so the split, the mixer and the lane's
