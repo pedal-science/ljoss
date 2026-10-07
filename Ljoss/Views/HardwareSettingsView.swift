@@ -71,6 +71,7 @@ struct HardwareSettingsView: View {
             if let failure = session.lastFailure { refusal(failure) }
             if !session.issues.isEmpty { issues }
             if let status = session.status { device(status) }
+            if let cost = session.status?.cost { costSection(cost) }
         }
         .formStyle(.grouped)
         .onAppear(perform: load)
@@ -703,6 +704,32 @@ struct HardwareSettingsView: View {
             .font(.callout)
         } header: {
             Text("Audio")
+        }
+    }
+
+    /// What the rig being played costs on this device (D2, D3, D6): the numbers behind the
+    /// indicator the toolbar shows while the player is playing. The rows are the *device's*
+    /// measurements (D9), so this also says when it has none — an unmeasured device charges
+    /// every unit its unknown cost rather than waving a rig through (D8).
+    @ViewBuilder
+    private func costSection(_ cost: EngineCost) -> some View {
+        Section {
+            Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 3) {
+                row("Cost", "\(RigCostReport.fraction(cost.cost)) of a core")
+                if cost.trimmed == true {
+                    row("As written", RigCostReport.fraction(cost.fullCost))
+                }
+                row("Headroom", RigCostReport.fraction(cost.headroom))
+                row("Verdict", EngineWords.verdict(for: cost))
+                if cost.tableOk == false {
+                    row("Table", "none at \(cost.table ?? "—")")
+                } else if let rows = cost.tableRows, let table = cost.table {
+                    row("Table", "\(rows) rows, \(table)")
+                }
+            }
+            .font(.callout)
+        } header: {
+            Text("Cost")
         }
     }
 

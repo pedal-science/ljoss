@@ -25,6 +25,7 @@ sources=(
   "$root"/Ljoss/Engine/BlockMapping.swift
   "$root"/Ljoss/Engine/DocumentEncoder.swift
   "$root"/Ljoss/Engine/EngineProtocol.swift
+  "$root"/Ljoss/Engine/EngineCost.swift
   "$root"/Ljoss/Engine/EngineFraming.swift
   "$root"/Ljoss/Engine/EngineEdits.swift
   "$root"/Ljoss/Engine/EngineSettings.swift
@@ -43,6 +44,7 @@ sources=(
   "$root"/Tests/FlowTests.swift
   "$root"/Tests/EncoderTests.swift
   "$root"/Tests/WireTests.swift
+  "$root"/Tests/CostTests.swift
   "$root"/Tests/EditTests.swift
   "$root"/Tests/AssetTests.swift
   "$root"/Tests/AssetStoreTests.swift

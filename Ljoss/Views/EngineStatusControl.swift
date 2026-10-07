@@ -40,7 +40,11 @@ struct EngineStatusControl: View {
         case .online:
             if !session.refusals.isEmpty { "\(session.refusals.count) thing(s) this device cannot play" }
             else if session.isAdopting { "Crossfading into the new rig" }
-            else { session.issues.isEmpty ? "Connected and healthy" : session.issues[0].code }
+            // In our words, not the engine's code: this is the one place a player reads an
+            // issue without opening Settings, and `model_slimmed` and `cost_over` are
+            // "info"/"warn" codes whose whole meaning is in the sentence.
+            else if let first = session.issues.first { EngineWords.title(for: first.code) }
+            else { "Connected and healthy" }
         }
     }
 }
@@ -98,6 +102,14 @@ enum EngineWords {
         case "patch_rejected": "The device refused that change"
         // An issue per block (it plays as bypassed), or, for a block with no dry path, a refusal.
         case "asset_missing": "The device does not have a block's model or IR"
+        // The cost table (D6, D8). `model_slimmed` is "info" in the engine's own words — a
+        // two-amp rig on a small core is the table doing what it was configured to do — and it
+        // is still shown, because it is the one issue that says the rig does not sound like the
+        // rig it names.
+        case "model_slimmed": "A block plays its Lite model, so the rig sounds different"
+        case "cost_unknown": "A block's cost has never been measured on this device"
+        case "cost_over": "This rig is over the device's cost limit and may miss deadlines"
+        case "cost_table_missing": "The device has no measured cost table, so costs are guessed high"
         case "path_refused": "A file path was refused"
         case "unknown_chain": "The device does not have that chain"
         case "unauthorized": "The token was not accepted"
@@ -108,8 +120,19 @@ enum EngineWords {
         }
     }
 
-    static func symbol(for severity: String?) -> String {
-        switch severity {
+    /// What the cost table decided about a rig, in this app's words: the engine publishes three
+    /// code words and none of them says what a player would want to know.
+    static func verdict(for cost: EngineCost) -> String {
+        switch cost.verdict {
+        case "fits": "Fits"
+        case "trimmed": "Fits, with models on Lite"
+        case "over": "Over the limit — may miss deadlines"
+        case let other?: other
+        case nil: cost.over == true ? "Over the limit — may miss deadlines" : "Fits"
+        }
+    }
+
+    static func symbol(for severity: String?) -> String {        switch severity {
         case "error": "xmark.octagon.fill"
         case "warn": "exclamationmark.triangle.fill"
         default: "info.circle.fill"

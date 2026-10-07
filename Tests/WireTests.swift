@@ -414,6 +414,7 @@ func testRequestEncoding() {
         HelloRequest(token: "x"), PlainRequest("engine.status"), PlainRequest("rig.get"),
         AssetsRequest(refresh: true), ApplyRequest(document: document),
         MuteRequest(mute: false, chain: nil), PlainRequest("engine.schema"),
+        CostRequest(document: document),
         PatchRequest(chain: "c", ops: [PatchOp(target: .node("g"), param: "gain_db", value: 0)]),
     ]
     var missing: [String] = []

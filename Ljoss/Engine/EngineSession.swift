@@ -64,6 +64,11 @@ final class EngineSession {
     private(set) var status: EngineStatus?
     private(set) var assets = AssetsResponse()
 
+    /// What the device has been asked about the rigs in the library, for this connection.
+    /// Observed, because a verdict arriving is what marks a rig unusable in the list and tells
+    /// the editor why nothing is playing.
+    private(set) var costVerdicts = CostVerdicts()
+
     /// Why the current rig cannot be sent. Empty when it can.
     private(set) var refusals: [EncodeRefusal] = []
 
@@ -120,6 +125,14 @@ final class EngineSession {
     @ObservationIgnored private var wantsConnection = false
     @ObservationIgnored private var reconnect: Task<Void, Never>?
     @ObservationIgnored private var attempts = 0
+
+    /// An engine that answered `unknown_method` to `rig.cost`. Asking it per rig would be a
+    /// round trip per click for the same answer, and an older engine is not a broken one: the
+    /// rigs go as they always did and the engine's own refusal is the backstop.
+    @ObservationIgnored private var costUnsupported = false
+
+    /// The table the cost verdicts were asked against, so a re-measured one is noticed.
+    @ObservationIgnored private var costTable = CostTableKey(status: nil)
 
     /// In the background nothing is polled, and nothing is retried either.
     @ObservationIgnored private var paused = false
@@ -199,6 +212,10 @@ final class EngineSession {
         pending.removeAll()
         baseline = nil
         catalogue = nil
+        costUnsupported = false
+        // A verdict is about one device's table, and this is no longer that device.
+        costVerdicts.removeAll()
+        costTable = CostTableKey(status: nil)
         let client = self.client
         self.client = nil
         Task { await client?.close() }
@@ -266,6 +283,14 @@ final class EngineSession {
         // not play before anyone tries to send it.
         let encoded = DocumentEncoder.encode(rig)
         if encoded.refusals != refusals { refusals = encoded.refusals }
+
+        // A verdict is about the document it was asked about, and any edit is a new document.
+        // Dropped only when there is one to drop: this runs at every step of a knob, and writing
+        // an observed property per step would redraw the library for nothing. Compared here
+        // rather than per row, because a list draws a row far more often than a rig is sent; an
+        // unusable rig is asked about again by the debounce below, since it can never be sent and
+        // so never takes the ramp path.
+        if costVerdicts.known(rig.id) != nil { costVerdicts.forget(rig.id) }
 
         guard connection.isOnline else { return }
         route(encoded)
@@ -406,7 +431,21 @@ final class EngineSession {
     }
 
     /// Send the whole document, and then look again at whatever changed on the way.
+    ///
+    /// **The device's verdict comes before the document does** (P5, D6). A rig the cost table
+    /// would refuse is never sent, so the rig that is playing keeps playing and the reason is
+    /// the editor's to show rather than something the player has to find in Settings. It is
+    /// asked here rather than at the click, because this is the one funnel every whole document
+    /// goes through: the debounced edit, a reconnect, and the resend button alike.
+    ///
+    /// A ramp cannot change a rig's cost — a rampable parameter is a number inside a node, and
+    /// what is charged for is the units: the models, the IRs and the node types — so the
+    /// streamed path above needs no gate.
     private func apply(_ rig: Rig) async {
+        if let document = DocumentEncoder.encode(rig).document,
+           let report = await cost(of: rig, document: document), report.isOver {
+            return
+        }
         applying += 1
         await send(rig)
         applying -= 1
@@ -414,6 +453,46 @@ final class EngineSession {
             route(DocumentEncoder.encode(latest))
         }
     }
+
+    // MARK: - Cost
+
+    /// What the device says a rig would cost, asked before it is played and kept for the
+    /// session.
+    ///
+    /// D9 gives the engine the table, the fit check and the refusal, and this app the showing
+    /// and the refusal to activate; so this asks rather than adding costs up here, which would
+    /// be the second cost model D9 rules out. Nothing is published or compiled by the question,
+    /// which is what makes it safe to ask about a rig nobody has played.
+    ///
+    /// Nil is "no verdict", and it is not a refusal: an engine too old to know the method, a
+    /// document it will not parse, a device that has gone away, or an asset the rig names that
+    /// the device has not got. All of those leave the rig to go exactly as it did before, and
+    /// the engine's own `over_budget` refusal is the backstop.
+    func cost(of rig: Rig, document: EngineDocument) async -> RigCostReport? {
+        guard connection.isOnline, let client, !costUnsupported else { return nil }
+        let table = CostTableKey(status: status?.cost)
+        if let known = costVerdicts.report(for: rig.id, document: document, table: table) {
+            return known
+        }
+
+        do {
+            let reply = try await client.call(CostRequest(document: document), expecting: CostResponse.self)
+            guard let cost = reply.cost else { return nil }
+            let report = RigCostReport(cost: cost, slimmedModels: reply.slimmedModels ?? [])
+            costVerdicts.store(report, for: rig.id, document: document, table: table)
+            return report
+        } catch let failure as EngineFailure {
+            if failure.code == "unknown_method" { costUnsupported = true }
+            return nil
+        } catch {
+            lost(describe(error), on: client)
+            return nil
+        }
+    }
+
+    /// What the device has already said about a rig, for the library to mark and the editor to
+    /// explain. Nil until it has been asked, and after an edit — see `rigDidChange`.
+    func costReport(for rig: UUID) -> RigCostReport? { costVerdicts.known(rig) }
 
     private func send(_ rig: Rig) async {
         guard let client, connection.isOnline else { return }
@@ -491,6 +570,10 @@ final class EngineSession {
         guard let client else { return }
         if let fresh = try? await client.call(AssetsRequest(refresh: true), expecting: AssetsResponse.self) {
             assets = fresh
+            // A rescan can find a model that was replaced on the device, and a node is charged
+            // for the family and size the *file* declares: the table has not moved, and every
+            // verdict about a rig naming that model has.
+            costVerdicts.removeAll()
         }
     }
 
@@ -509,8 +592,17 @@ final class EngineSession {
     private func refreshStatus() async {
         guard let client else { return }
         do {
-            status = try await client.call(PlainRequest("engine.status"),
-                                           expecting: StatusResponse.self).status
+            let fresh = try await client.call(PlainRequest("engine.status"),
+                                              expecting: StatusResponse.self).status
+            // The table is the one thing outside this app that a verdict depends on, and it is
+            // re-measured on the device (D2, P1): a table that has moved retires every verdict
+            // asked against the old one, which is also what unmarks a rig in the list.
+            let table = CostTableKey(status: fresh?.cost)
+            if table.isKnown, table != costTable {
+                costTable = table
+                costVerdicts.removeAll()
+            }
+            status = fresh
         } catch let error as EngineTransportError {
             lost(error.message, on: client)
         } catch {

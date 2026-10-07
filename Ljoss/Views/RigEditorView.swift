@@ -7,6 +7,9 @@ struct RigEditorView: View {
     /// A viewing preference, not part of the rig: on by default, remembered
     /// across launches, and the same for every rig.
     @AppStorage("wrapsChains") private var wrapsChains = true
+    /// Optional, so a preview needs nothing but the editor. The toolbar asks it whether the rig
+    /// being heard is playing a Lite model (`TrimmedIndicator`).
+    @Environment(EngineSession.self) private var session: EngineSession?
 
     private let library: RigLibrary
     /// Settings is the window's mode, not this view's, so the button that opens them is
@@ -32,6 +35,10 @@ struct RigEditorView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // The rig saying it is not the rig being heard, where its blocks are: a rig the
+            // device will not publish is still editable, and this is the only place that says
+            // so while the player is looking at it (P5).
+            RigCostNotice(rig: editor.rig)
             canvas
             Divider()
             PaletteTray(source: $paletteSource)
@@ -105,6 +112,13 @@ struct RigEditorView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // Only while there is something to say (D6): the rig being heard is playing a model
+        // smaller than the one it names.
+        if session?.status?.isPlayingTrimmed == true {
+            ToolbarItem(placement: .primaryAction) {
+                TrimmedIndicator(rig: editor.rig)
+            }
+        }
         ToolbarItem(placement: .primaryAction) {
             EngineStatusControl(openSettings: openSettings)
         }

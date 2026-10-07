@@ -93,6 +93,17 @@ struct RigLibraryView: View {
 
 struct RigRow: View {
     let rig: Rig
+    /// Optional, so the list still draws with no device set up — and with no verdict about
+    /// anything, which is what an app that has not been asked yet has.
+    @Environment(EngineSession.self) private var session: EngineSession?
+
+    /// The device will not publish this rig: P5's unusable one, which stays in the list
+    /// because it is still the player's rig, and is marked because a rig nobody can play is
+    /// worth knowing about before it is picked. Nil until it has been asked about.
+    private var unusable: RigCostReport? {
+        guard let report = session?.costReport(for: rig.id), report.isOver else { return nil }
+        return report
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -111,6 +122,13 @@ struct RigRow: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
+            if let unusable {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .help("Too big for this device: it is never played. " + unusable.refusalReason)
+                    .accessibilityLabel(Text("Too big for this device"))
+            }
         }
         .padding(.vertical, 6)
         .frame(minHeight: Metrics.minTouchTarget)

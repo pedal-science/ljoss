@@ -277,6 +277,57 @@ list exactly when the user is reading it. The rest of the page (the folders, the
 choices) stays live: those are what starts the next scan, and changing one mid-scan
 supersedes it. How the library itself works is in [ASSETS.md](ASSETS.md).
 
+## What may play: the cost table's verdict
+
+A rig renders on one core, all of its chains, against a measured budget: the engine's cost table
+(D1–D3 of pedal.project's `managing-processing-power-and-optimising-for-fast-switching.md`). D9
+splits the work — the engine owns the table, the fit check and the refusal; this app shows and
+refuses to activate — and the app's half is two things, both fed by the same numbers.
+
+**The rig being heard may not be the rig it names.** Trimming is Full → Lite, and the two are
+separately trained networks: a trimmed rig *sounds different*. So the engine reports what it
+trimmed and this app says so in the **toolbar**, beside the device control, naming the blocks —
+`EngineStatus.trimmedRig(in:)` turns each trimmed node's `element`, which is this app's own block
+identity, back into the name on the tile, and falls back to the model reference for a document
+this app did not send. Not a banner and not the Hardware page: the point is that it can be read
+while playing, and a rig sounds wrong for exactly as long as the player is playing it. The chip is
+added to the toolbar only when there is something to say, so a rig playing what it names shows
+nothing at all — and so does an engine too old to report a cost, which is not a broken engine. The
+numbers behind it are on Settings → Hardware, and the engine's own `model_slimmed` issue — severity
+`info`, and shown like any other — is what names the node and the row.
+
+**A rig the device will not publish is never sent.** `rig.cost` is asked before every whole
+document, and `cost.over` means the engine would refuse the publish: it does not fit even with its
+dearest models on Lite. The document stays here, the rig stays on screen and stays **editable** —
+removing the block that made it too big is the fix, and a rig nobody can open is a rig nobody can
+fix — and the rig that was already playing keeps playing. The notice over the canvas is what says
+so. *Ruled out:* blocking the click in the library, which is the same refusal with the rig locked
+away from the one person who could fix it; and sending it anyway, which leans on the engine's
+`over_budget` refusal and reports it in Settings, where nobody playing is looking.
+
+The ask sits in `EngineSession.apply`, which is the one funnel every whole document goes through —
+the debounced edit, a reconnect and the Re-send button alike — and a ramped edit needs no gate,
+because a rampable parameter is a number inside a node while what is charged for is the units.
+
+**What invalidates a cached verdict, and what does not.** A verdict is one document against one
+table, and it is cached per rig for the connection. So it goes when: the rig is **edited** (a new
+document is a new question — `CostVerdicts.forget`, on the edit itself rather than compared row by
+row, because a list draws a row far more often than a rig is sent); the **table changes** (a
+re-measure with the same row count still moves its timestamp, which is why `CostTableKey` carries
+the path, whether it loaded, the row count *and* the measurement); the device's **library is
+rescanned** (a model replaced under `models_root` can change what a node is charged without the
+table moving); and the **connection** goes, since a table belongs to a device. The engine's
+`generation` is deliberately *not* a key: it moves on every publish, and a verdict about a rig
+that is not playing depends on the table and the document alone.
+
+Two smaller decisions fall out of the same place. **This app always asks about a document**, never
+about a rig by name: the rigs a player can reach are this library, not files on the device, and
+`rig.cost`'s `rig` form names a file under the device's `rigs_root`. And **no answer is not a
+refusal**: an engine older than the method, a document the engine will not parse, a device that has
+gone away — each leaves the rig to go exactly as it did before, with the engine's own refusal as
+the backstop, because a client that stopped sending whenever it could not ask would be worse than
+one that asks and is told no.
+
 ## Platform differences
 
 | | macOS | iOS |
