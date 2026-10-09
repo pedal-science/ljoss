@@ -253,6 +253,20 @@ invalidated at meter rate) and the meters are `MeterReader` + `LevelBar` (`Meter
 thresholds, `MeterBallistics` for the release). An engine that does not advertise `levels` in
 `engine.hello` hides the meters rather than erroring: an older engine is not a broken one.
 
+**One number in `MeterScale` is still a placeholder, and it is the one that makes the meters
+useful.** `clip` is 0 dBFS, but the pedal's input jack is full scale well below that — the level
+campaign measured it at −11.2 dBFS, so a bar that reads 0 here promises about 11 dB of headroom the
+input does not have. The scale belongs to the hardware, not to the engine, and it can only be
+settled by a campaign that drives the input the way a player does: a real guitar into a guitar
+buffer pedal, repeated in both **Inst** and **Line** positions once board 1's input stage exists,
+and each position measured separately because they cannot share a scale. That work is specified as
+pedal.project's `plan.md` Phase 2b item 4 — the first run needs no board 1, and it is where the
+calibrated `input_clip_dbfs`, `input_full_scale_dbu` and the matching floor and nominal come back
+from. Until it has run, read the thresholds here as provisional and the bars as accurate rather
+than meaningful. Note that in `MeterScale` the thresholds and `clip` are one set for every meter,
+device input and node alike, so a per-position scale needs `clip` to become a property of the
+reading rather than a constant in the view.
+
 ## The local engine
 
 Settings → Hardware offers the other way round as well: **Connect to this computer**, which runs a
