@@ -2,8 +2,8 @@
 
 A SwiftUI signal-chain designer for guitar, bass and vocal rigs (macOS 27+ and iOS 27+, one
 multiplatform target). It is also the front end for namchain: pointed at a device, it sends the
-rig being edited over TCP as it is edited. For the pedal it talks to `namchaind` on `tib`
-directly over WiFi.
+rig being edited over TCP as it is edited. For the pedal it talks to `namchaind` on the Core
+host directly over WiFi.
 
 ## Build and test
 
