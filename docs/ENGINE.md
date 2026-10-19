@@ -2,7 +2,7 @@
 
 How a rig reaches a namchain device, and why the split of work is where it is.
 
-[namchain](https://github.com/rikkus/namchain) is the real-time engine the pedal
+[namchain](https://github.com/pedal-science/namchain) is the real-time engine the pedal
 runs: a NAM inference core, a graph compiler, and `namchaind`, which holds a plan per
 chain on a real-time thread and serves a JSON control protocol. This app is its front
 end. The contract between them is **namchain's** `docs/ui-integration-plan.md` §1,

@@ -4,7 +4,7 @@ A signal-chain designer for guitar, bass and vocal rigs — the kind of routing
 you'd build on a HeadRush Core, Quad Cortex or Helix Stadium. SwiftUI, one
 multiplatform target, iOS 27+ (iPhone and iPad) and macOS 27+.
 
-It is also the front end for [namchain](https://github.com/rikkus/namchain), the
+It is also the front end for [namchain](https://github.com/pedal-science/namchain), the
 real-time engine that runs on the pedal: point it at a device and the rig you are
 editing is sent over TCP as you edit it.
 
