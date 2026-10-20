@@ -18,6 +18,10 @@ xcodebuild -project Ljoss.xcodeproj -scheme Ljoss -destination 'platform=macOS' 
 Checks that need a real daemon are tools, not tests: `Tools/dump-engine-document.sh`,
 `Tools/check-device.sh` and `Tools/check-streaming.sh` (see `docs/ENGINE.md`).
 
+`LJOSS_DEMO=<dir>` (macOS) runs `Ljoss/App/DemoMode.swift`: a scripted, hands-off run that builds the
+rig in `<dir>/demo.json`, makes its edits and saves the window after each, touching nothing of the
+user's. pedal.science's teaser takes its screenshots this way (`comms/video/README.md`).
+
 ## Constraints
 
 - `Model/`, `Catalogue/`, and the wire, encoder and protocol files in `Engine/` have no

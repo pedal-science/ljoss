@@ -50,7 +50,15 @@ struct RigEditorView: View {
         }
         .overlay { DragGhostLayer() }
         .environment(editor)
-        .onAppear { editor.didAppear() }
+        .onAppear {
+            editor.didAppear()
+            #if os(macOS)
+            DemoMode.current?.attach(editor)
+            #endif
+        }
+        #if os(macOS)
+        .onAppear { DemoMode.current?.start(editor: editor, engine: session) }
+        #endif
         .navigationTitle(editor.rig.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

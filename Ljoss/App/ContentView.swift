@@ -42,6 +42,10 @@ struct ContentView: View {
         }
         .onAppear {
             if selection.current == nil { selection.current = library.rigs.first?.id }
+            #if os(macOS)
+            // The scripted run is about the rig: no list beside it.
+            if DemoMode.current != nil { columnVisibility = .detailOnly }
+            #endif
         }
         // The export is a menu item, but its failure still has to be somewhere the user is
         // looking — a rig that would not lower, or a folder that would not be written.

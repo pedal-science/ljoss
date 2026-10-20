@@ -17,14 +17,14 @@ struct LjossApp: App {
     /// Engine state is not rig data: it lives here, beside the library, and never
     /// inside a `Rig`. Writing a generation or a health into the document would
     /// mark every rig modified and thrash the library's autosave.
-    @State private var engine = EngineSession()
+    @State private var engine: EngineSession
     /// The daemon this app can run itself: a `namchaind` on this Mac, playing a rig through one of
     /// its audio devices. `shared` rather than a new instance, because one daemon per port is the
     /// whole point — see `LocalEngine.shared`.
     @State private var localEngine = LocalEngine.shared
     /// The user's own models and impulse responses, beside the rigs rather than in them:
     /// a rig names a model by the *device's* id, and nothing here is sent anywhere yet.
-    @State private var assets = AssetLibrary()
+    @State private var assets: AssetLibrary
     @Environment(\.scenePhase) private var scenePhase
 
     /// The library, the selection and the exporter are made here rather than with default
@@ -32,11 +32,29 @@ struct LjossApp: App {
     /// selection, and a second `RigSelection` inside the exporter would leave the menu
     /// looking at an empty one while the window showed a rig.
     init() {
+        #if os(macOS)
+        // The video's scripted run (DemoMode): its own rigs, assets and engine, and the user's
+        // left alone. The session is made from the script's settings so the keychain is not read.
+        if let demo = DemoMode.current {
+            let library = RigLibrary(directory: demo.libraryDirectory)
+            let rig = demo.makeRig()
+            library.update(rig, touchModified: false)
+            let selection = RigSelection(current: rig.id)
+            _library = State(initialValue: library)
+            _selection = State(initialValue: selection)
+            _exporter = State(initialValue: ExportController(selection: selection))
+            _engine = State(initialValue: EngineSession(settings: demo.engineSettings))
+            _assets = State(initialValue: AssetLibrary(directory: demo.assetsDirectory))
+            return
+        }
+        #endif
         let library = RigLibrary()
         let selection = RigSelection()
         _library = State(initialValue: library)
         _selection = State(initialValue: selection)
         _exporter = State(initialValue: ExportController(selection: selection))
+        _engine = State(initialValue: EngineSession())
+        _assets = State(initialValue: AssetLibrary())
     }
 
     var body: some Scene {
@@ -48,6 +66,12 @@ struct LjossApp: App {
                 .environment(localEngine)
                 .environment(assets)
                 .task {
+                    #if os(macOS)
+                    if DemoMode.current != nil {
+                        await engine.connect()
+                        return
+                    }
+                    #endif
                     // The model folders are scanned before anything is pointed at a device: the
                     // local engine gives the daemon the folder the scan found the user's models
                     // in, and waiting for it here is what keeps that from being yesterday's
@@ -72,6 +96,10 @@ struct LjossApp: App {
                 }
         }
         .onChange(of: scenePhase) { _, phase in
+            #if os(macOS)
+            // A scripted run is launched in the background: it must not pause its own session.
+            if DemoMode.current != nil { return }
+            #endif
             // Debounced autosaves must not be lost on the way out.
             if phase != .active {
                 library.flush()
