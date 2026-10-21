@@ -456,6 +456,83 @@ struct EngineSideLevels: Decodable, Sendable, Hashable {
     var maxPeak: Double? { peak?.max() }
 }
 
+/// `rig.state`: what each reporting node has derived -- from its parameters, or, for the tuner,
+/// from the audio it has heard (namchain docs/daemon.md, docs/tuner.md).
+struct StateResponse: Decodable, Sendable {
+    var generation: Int?
+    var nodes: [EngineNodeState]?
+}
+
+/// One node's entry in `rig.state`. Only the types with something to say appear, and what a node
+/// says is its own vocabulary: flowEQ's is a decoder's bands and a curve, the tuner's is a note.
+struct EngineNodeState: Decodable, Sendable, Hashable {
+    var chain: String?
+    var node: String?
+    var element: String?
+    var role: String?
+    var type: String?
+    var state: JSONValue?
+}
+
+/// A node's own JSON, undecoded.
+///
+/// `state` is whatever the node type publishes, so a fixed `struct TunerState` would fail the
+/// *whole* reply -- `EngineClient` turns that into `.malformed` -- the moment a rig also held an
+/// `nc.eq.flow` node, whose answer has arrays and objects in it. This is the smallest type that can
+/// carry any node's vocabulary and be read by key.
+enum JSONValue: Decodable, Sendable, Hashable {
+    case number(Double)
+    case string(String)
+    case bool(Bool)
+    case array([JSONValue])
+    case object([String: JSONValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)          // before Double: `true` would decode as 1 on some paths
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([JSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: JSONValue].self))
+        }
+    }
+
+    /// A member of an object value, or nil for anything else -- what a reader of one field uses.
+    subscript(key: String) -> JSONValue? {
+        if case .object(let fields) = self { return fields[key] }
+        return nil
+    }
+
+    var double: Double? {
+        switch self {
+        case .number(let value): value
+        case .string(let text): Double(text)
+        default: nil
+        }
+    }
+
+    var string: String? {
+        if case .string(let value) = self { return value }
+        return nil
+    }
+
+    var bool: Bool? {
+        switch self {
+        case .bool(let value): value
+        case .number(let value): value != 0
+        default: nil
+        }
+    }
+}
+
 /// The envelope `engine.levels` arrives in.
 struct LevelsResponse: Decodable, Sendable { var levels: EngineLevels? }
 

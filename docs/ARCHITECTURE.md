@@ -235,6 +235,28 @@ fills and full strength for icons and strokes. One value works in both
 appearances, so there is no dynamic colour provider and no asset catalogue to
 keep in sync.
 
+### The tuner is a panel in the left column, not a block
+
+The tuner takes the **bottom half of the left column** (the rig library's), toggled by a button
+immediately left of the gear. It is a panel rather than a block in the chain because it is not part
+of the rig: the engine's tuner node is mounted while the panel is up and removed when it goes, so
+nothing about it is saved, undone or exported. The engine half of that is
+[ENGINE.md](ENGINE.md#the-tuner); what belongs here is the layout.
+
+- The panel is a child of the sidebar `VStack` in `ContentView`, at
+  `containerRelativeFrame(.vertical) { height, _ in height * 0.5 }` — **half the column**, as asked,
+  and it follows the column's width without a second size of its own.
+- It is not in `RigLibraryView`. That view is a `List` with selection, a context menu, swipe actions
+  and a rename alert; wrapping it in a `VStack` at the shell is one line and leaves all of that alone.
+- **Settings closes the tuner.** Settings is a mode that takes the column, so a panel left "open"
+  in a column that no longer exists would be a hidden control that leaves the rig muted. `openSettings`
+  calls the same `setTuner(false)` the button does.
+- One `setTuner(_:)` in `ContentView` is the only thing that touches `EngineSession.setTunerVisible`,
+  so the button, the sheet's dismissal and opening settings can never disagree with the engine about
+  whether the rig is muted.
+- On an iPhone there is no left column: the same panel is a `.sheet` from the same button, dismissed
+  the same way.
+
 ## Settings is a mode, not a sheet
 
 The gear button at the top right swaps the window's two columns: the rig library's

@@ -234,8 +234,6 @@ extension Catalogue {
             [.range("gain", "Gain", 0.0, -24.0, 24.0, unit: "dB")]),
         ComponentSpec("util.pan", "Pan", "Place in the stereo field", .utility, [.guitar, .bass, .vocal], "arrow.left.arrow.right",
             [.range("pan", "Pan", 0.0, -100.0, 100.0, unit: "%")]),
-        ComponentSpec("util.tuner", "Tuner", "Mute and tune", .utility, [.guitar, .bass, .vocal], "tuningfork",
-            [.range("ref", "Reference", 440.0, 415.0, 460.0, unit: "Hz"), .toggle("mute", "Mute Output", true)]),
         ComponentSpec("util.looper", "Looper", "Record and overdub", .utility, [.guitar, .bass, .vocal], "repeat",
             [.range("maxtime", "Max Time", 60.0, 10.0, 300.0, unit: "s"), .knob("playback", "Playback", 7.0, min: 0.0, max: 10.0), .toggle("halfspeed", "Half Speed", false)]),
         ComponentSpec("util.sendreturn", "FX Loop", "Send to outboard gear", .utility, [.guitar, .bass, .vocal], "arrow.triangle.branch",
@@ -244,6 +242,11 @@ extension Catalogue {
             [.pick("freq", "Frequency", ["50 Hz", "60 Hz"], "50 Hz"), .knob("amount", "Amount", 6.0, min: 0.0, max: 10.0)]),
         ComponentSpec("util.di", "DI Box", "Direct injection", .utility, [.guitar, .bass, .vocal], "cable.connector",
             [.toggle("lift", "Ground Lift", false), .range("pad", "Pad", 0.0, -20.0, 0.0, unit: "dB")]),
+        // No tuner, deliberately. The tuner is a view, not a block: the app mounts the engine's
+        // `nc.tuner` after each chain's input while its panel is on screen, and that node's output
+        // is silence (namchain docs/tuner.md, docs/ARCHITECTURE.md). A palette entry would be a
+        // block with no engine mapping -- it has never had one -- so a rig holding one could not be
+        // sent at all.
     ]
 
     /// Every component, in browse order.

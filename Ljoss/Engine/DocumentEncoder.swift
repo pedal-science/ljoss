@@ -57,12 +57,25 @@ enum DocumentEncoder {
         var index: Int
     }
 
-    static func encode(_ rig: Rig) -> EncodeResult {
+    /// The node a client mounts around its own view (namchain docs/tuner.md).
+    ///
+    /// Not a block, and never in the `Rig`: the engine's `nc.tuner` outputs silence, so putting one
+    /// after each chain's input is how a tuner mutes the rig while the player tunes. `tuner` here is
+    /// the UI's state, not the rig's -- it reaches the wire and nothing else, so it is not drawn on
+    /// the canvas, not saved in the library and not in any export.
+    static let tunerNodeType = "nc.tuner"
+    /// The marker in `meta` that says *this* node is a client's, not a hand-written one. The engine
+    /// keeps `meta` verbatim and hands it back from `rig.get`.
+    static let tunerMarker = "tuner"
+    /// The element a mounted node carries, so a reader can tell where it came from.
+    static let tunerElement = "tuner"
+
+    static func encode(_ rig: Rig, tuner: Bool = false) -> EncodeResult {
         var refusals: [EncodeRefusal] = []
         var chains: [EngineChain] = []
 
         for (index, chain) in rig.chains.enumerated() {
-            chains.append(encode(chain, at: index, refusals: &refusals))
+            chains.append(encode(chain, at: index, tuner: tuner, refusals: &refusals))
         }
 
         let visible = rig.activeChains.map { $0.id }
@@ -78,12 +91,26 @@ enum DocumentEncoder {
 
     private static func encode(_ chain: SignalChain,
                                at index: Int,
+                               tuner: Bool,
                                refusals: inout [EncodeRefusal]) -> EngineChain {
         var nodes: [EngineNode] = []
         var connections: [EngineConnection] = []
 
         nodes.append(EngineNode(id: "in", type: "nc.input", element: chain.input.id.uuidString))
         var here = Port(node: "in", index: 0)
+
+        // The tuner, in the one place it belongs: immediately after the input, so everything the
+        // input fed now hangs off a node whose output is silence. Everything below is emitted from
+        // `here`, so this needs no special case for a parallel section or an empty chain. The id is
+        // per chain (`in`/`out` are the only ids the app reuses) and the element is stable, so a
+        // `rig.get` read back names one node.
+        if tuner {
+            let id = "tuner-\(index)"
+            nodes.append(EngineNode(id: id, type: tunerNodeType, element: tunerElement,
+                                    meta: ["ephemeral": tunerMarker]))
+            connections.append(EngineConnection(from: "in", fromPort: 0, to: id))
+            here = Port(node: id, index: 0)
+        }
 
         here = emit(chain.elements,
                     from: here,

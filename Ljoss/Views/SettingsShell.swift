@@ -139,10 +139,51 @@ struct SettingsToolbarItem: View {
     }
 }
 
+// MARK: - The tuner's button
+
+/// The button that shows and hides the tuner panel, immediately left of the settings gear.
+///
+/// It is a toggle, not a menu: the panel it controls is in the left column, and the two are one
+/// decision (the panel's own state is the button's). Disabled on an engine that has no tuner node,
+/// because turning it on publishes a document that engine would refuse.
+struct TunerToolbarItem: View {
+    var isOn: Bool
+    var isEnabled: Bool
+    var action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label {
+                Text("Tuner")
+            } icon: {
+                Image(systemName: "tuningfork")
+            }
+        }
+        .disabled(!isEnabled)
+        .symbolVariant(isOn ? SymbolVariants.fill : SymbolVariants.none)
+        .help(isEnabled
+              ? (isOn ? "Hide the tuner" : "Show the tuner — the rig is muted while it is up")
+              : "This device has no tuner")
+        .accessibilityLabel(Text(isOn ? "Hide Tuner" : "Show Tuner"))
+    }
+}
+
 extension View {
-    /// Add the settings button to this container's toolbar.
-    func settingsToolbarItem(isOpen: Bool, action: @escaping () -> Void) -> some View {
+    /// Add the settings button to this container's toolbar, and optionally the tuner button
+    /// immediately to its left.
+    ///
+    /// Both live in the one `toolbar` builder so their order is the order they are declared in:
+    /// `primaryAction` items are collected per builder, and a second builder's item can land on
+    /// either side of it.
+    func settingsToolbarItem(isOpen: Bool,
+                             tuner: (isOn: Bool, isEnabled: Bool, action: () -> Void)? = nil,
+                             action: @escaping () -> Void) -> some View {
         toolbar {
+            if let tuner {
+                ToolbarItem(placement: .primaryAction) {
+                    TunerToolbarItem(isOn: tuner.isOn, isEnabled: tuner.isEnabled, action: tuner.action)
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 SettingsToolbarItem(isOpen: isOpen, action: action)
             }

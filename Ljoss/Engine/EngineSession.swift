@@ -59,6 +59,11 @@ final class EngineSession {
     /// losing the device stops the meter polling too.
     let levels = EngineLevelsModel()
 
+    /// The tuner's reading, polled only while the tuner panel is visible. Its own object for the
+    /// same reason `levels` is (EngineLevels has the reasoning): a value that changes at needle
+    /// rate must not be in `status`, which every block on the canvas reads.
+    let tuner = TunerModel()
+
     private(set) var connection: Connection = .offline
     private(set) var hello: EngineHello?
     private(set) var status: EngineStatus?
@@ -90,6 +95,19 @@ final class EngineSession {
     // most of it, and a view that calls it while building its body would otherwise be
     // invalidated by its own write and rebuild forever.
     @ObservationIgnored private var client: EngineClient?
+
+    /// Whether the tuner panel is visible. While it is, every document this session publishes has
+    /// a tuner node after each chain's input, so the rig is silent (namchain docs/tuner.md), and
+    /// the reading is polled. A viewing state, never saved: the app never starts muted.
+    private(set) var tunerVisible = false
+
+    /// Every document this app publishes goes through here, so the tuner node is in all of them or
+    /// in none. That matters for `baseline` as much as for the wire: it is the document an edit is
+    /// diffed against, and an encode with the node compared against a baseline without it would
+    /// make every edit structural and kill the ramp path.
+    private func encode(_ rig: Rig) -> EncodeResult {
+        DocumentEncoder.encode(rig, tuner: tunerVisible)
+    }
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored private var latest: Rig?
 
@@ -117,6 +135,10 @@ final class EngineSession {
 
     /// Whole documents on their way. Whatever changes meanwhile is looked at when they land.
     @ObservationIgnored private var applying = 0
+
+    /// A tuner toggle that arrived while a whole document was on its way. Re-routed when it lands,
+    /// because `scheduleDocument` will not start a second one.
+    @ObservationIgnored private var tunerNeedsPublish = false
 
     /// Whether the app should be connected: from `connect()` until the player's
     /// `disconnect()`. While it is, a connection that fails or drops is tried again, so a
@@ -182,6 +204,16 @@ final class EngineSession {
             // The meters, only if this engine says it measures levels: an older one is not a
             // broken one, and `start` says so once rather than refusing every 50 ms.
             levels.start(using: client, supported: hello?.has("levels") ?? false)
+            // The tuner needs two things: the node type in the schema, and `node_state` for the
+            // reading. Without both, the panel's button stays disabled rather than publishing a
+            // document the engine would refuse -- which would leave the rig playing while the
+            // screen said it was muted.
+            tuner.start(using: client,
+                        supported: (hello?.has("node_state") ?? false)
+                            && catalogue?.types.contains(DocumentEncoder.tunerNodeType) == true)
+            // The panel may still be open from before the drop: `close` stops the poller, and
+            // nothing else would start it again.
+            if tunerVisible { tuner.setWatching(true) }
             // Reconcile: the device is running whatever it was left with, and this
             // app owns the document, so the document wins.
             if let latest { await apply(latest) }
@@ -205,6 +237,7 @@ final class EngineSession {
     /// Let go of the connection and everything that belonged to it.
     private func close() {
         levels.stop()
+        tuner.stop()
         poller?.cancel(); poller = nil
         debounce?.cancel(); debounce = nil
         debounced = nil
@@ -257,6 +290,7 @@ final class EngineSession {
     func pause() {
         paused = true
         levels.pause()
+        tuner.pause()
         poller?.cancel()
         poller = nil
         reconnect?.cancel()
@@ -267,6 +301,13 @@ final class EngineSession {
         paused = false
         if connection.isOnline {
             if poller == nil { startPolling() }
+            // The levels poller is not restarted here (a known gap, not a decision); the tuner's is,
+            // because a panel that came back from the background showing a frozen note would be
+            // read as one that is still hearing it.
+            if tunerVisible, tuner.isWatching == false, let client {
+                tuner.start(using: client, supported: tuner.isSupported)
+                tuner.setWatching(true)
+            }
         } else if wantsConnection, connection != .connecting {
             attempts = 0
             scheduleReconnect()
@@ -281,7 +322,7 @@ final class EngineSession {
         latest = rig
         // Encoded even when offline, so the canvas can badge what this device could
         // not play before anyone tries to send it.
-        let encoded = DocumentEncoder.encode(rig)
+        let encoded = encode(rig)
         if encoded.refusals != refusals { refusals = encoded.refusals }
 
         // A verdict is about the document it was asked about, and any edit is a new document.
@@ -390,7 +431,7 @@ final class EngineSession {
     private func resynchronise() {
         baseline = nil
         pending.removeAll()
-        if let latest { scheduleDocument(DocumentEncoder.encode(latest).document) }
+        if let latest { scheduleDocument(encode(latest).document) }
     }
 
     // MARK: Whole documents
@@ -422,7 +463,7 @@ final class EngineSession {
         guard let latest else { return }
         // The rig may have come back within reach of ramps while it waited: a toggle
         // turned off again costs nothing.
-        let encoded = DocumentEncoder.encode(latest)
+        let encoded = encode(latest)
         if let edits = ramps(to: encoded) {
             queue(edits, reaching: encoded.document)
             return
@@ -442,15 +483,19 @@ final class EngineSession {
     /// what is charged for is the units: the models, the IRs and the node types — so the
     /// streamed path above needs no gate.
     private func apply(_ rig: Rig) async {
-        if let document = DocumentEncoder.encode(rig).document,
+        if let document = encode(rig).document,
            let report = await cost(of: rig, document: document), report.isOver {
             return
         }
         applying += 1
         await send(rig)
         applying -= 1
-        if applying == 0, connection.isOnline, let latest, latest != rig {
-            route(DocumentEncoder.encode(latest))
+        guard applying == 0, connection.isOnline, let latest else { return }
+        if tunerNeedsPublish {
+            tunerNeedsPublish = false
+            route(encode(latest))
+        } else if latest != rig {
+            route(encode(latest))
         }
     }
 
@@ -497,7 +542,7 @@ final class EngineSession {
     private func send(_ rig: Rig) async {
         guard let client, connection.isOnline else { return }
 
-        var result = DocumentEncoder.encode(rig)
+        var result = encode(rig)
         result.refusals.append(contentsOf: channelRefusals(for: result))
         refusals = result.refusals
 
@@ -558,6 +603,28 @@ final class EngineSession {
             }
             return nil
         }
+    }
+
+    /// The tuner panel is up, or down. While it is up every document this session publishes carries
+    /// a tuner node after each chain's input, so the rig is silent (namchain docs/tuner.md), and the
+    /// reading is polled.
+    ///
+    /// One structural apply per change -- one crossfade -- and never one per poll: the node's
+    /// presence is a document property, not a stream. A refusal leaves the flag where it is: the
+    /// panel reads `running` from the engine, so it says "the rig is not muted" rather than
+    /// pretending, and the next publish tries again.
+    func setTunerVisible(_ on: Bool) {
+        guard on != tunerVisible else { return }
+        tunerVisible = on
+        tuner.setWatching(on)
+        guard let latest else { return }
+        if applying > 0 {
+            // A document is on its way: `scheduleDocument` will not start a second, so this goes
+            // when that one lands (see `apply`).
+            tunerNeedsPublish = true
+            return
+        }
+        route(encode(latest))
     }
 
     func setMuted(_ muted: Bool, chain: String?) async {

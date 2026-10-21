@@ -28,6 +28,7 @@ sources=(
   "$root"/Ljoss/Engine/EngineCost.swift
   "$root"/Ljoss/Engine/EngineFraming.swift
   "$root"/Ljoss/Engine/EngineEdits.swift
+  "$root"/Ljoss/Engine/TunerReading.swift
   "$root"/Ljoss/Engine/EngineSettings.swift
   "$root"/Ljoss/Views/LevelMeters.swift
   "$root"/Ljoss/App/SavePanel.swift
@@ -50,6 +51,7 @@ sources=(
   "$root"/Tests/AssetStoreTests.swift
   "$root"/Tests/LocalEngineTests.swift
   "$root"/Tests/ExportTests.swift
+  "$root"/Tests/TunerTests.swift
   "$root"/Tests/main.swift
 )
 

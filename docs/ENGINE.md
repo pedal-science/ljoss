@@ -267,6 +267,31 @@ than meaningful. Note that in `MeterScale` the thresholds and `clip` are one set
 device input and node alike, so a per-position scale needs `clip` to become a property of the
 reading rather than a constant in the view.
 
+## The tuner
+
+The tuner is the one thing this app sends that is **not in the rig**. The engine's `nc.tuner` node
+outputs silence, so mounting one after each chain's input is what a pedal tuner does: the player
+tunes while the amp hears nothing (namchain docs/tuner.md). The node is injected at **encode time**
+and nowhere else — `DocumentEncoder.encode(_:tuner:)` — so it reaches the wire and never the `Rig`:
+it is not drawn on the canvas, not saved in the library and not in an export (that call defaults to
+`false`, which is what `RigExport` gets).
+
+- **The marker.** The node carries `"meta": {"ephemeral": "tuner"}`, and the engine keeps `meta`
+  verbatim and hands it back from `rig.get`. That is how anything that persists the engine's
+  document knows to leave it out: `pedald`'s resume record strips it, or a power cycle would bring
+  the pedal back *muted* playing a node no editor draws.
+- **One funnel.** Every `DocumentEncoder.encode` in `EngineSession` goes through a private
+  `encode(_:)` that passes `tunerVisible`. That is not tidiness: `baseline` is the document an edit
+  is diffed against, and encoding with the node while the baseline lacks it would make every edit
+  compare as structural and kill the ramp path for as long as the tuner is open.
+- **The reading** is `rig.state`, the method flowEQ's panel uses, filtered to the `nc.tuner` node
+  and decoded through `JSONValue` — a node's `state` is its own vocabulary, and a fixed struct for
+  the tuner's shape would fail the whole reply the moment a rig also held an `nc.eq.flow` node.
+- **The failure that matters.** `TunerReading.running` comes from the engine's own document, not
+  from what this app asked for, so a refused publish shows as "the rig is not muted" on a panel that
+  is visibly up. `EngineSession.setTunerVisible` leaves the flag where it was and the panel tells
+  the truth; there is no state in which the app claims a mute it did not get.
+
 ## The local engine
 
 Settings → Hardware offers the other way round as well: **Connect to this computer**, which runs a

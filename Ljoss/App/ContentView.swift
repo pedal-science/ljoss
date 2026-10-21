@@ -19,6 +19,10 @@ struct ContentView: View {
 
     @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var showingSettings = false
+    /// The tuner panel in the left column, and the engine's tuner node with it: while it is on, the
+    /// rig is muted (docs/ARCHITECTURE.md, "The tuner"). A viewing state, not a rig property, so it
+    /// is not saved and the app never starts muted.
+    @State private var showingTuner = false
     /// The area the detail shows. Defaults to the first one, which is what settings opens
     /// on the first time; after that it is wherever the user last was.
     @State private var settingsArea: SettingsArea? = SettingsArea.allCases.first
@@ -49,6 +53,13 @@ struct ContentView: View {
         }
         // The export is a menu item, but its failure still has to be somewhere the user is
         // looking — a rig that would not lower, or a folder that would not be written.
+        #if os(iOS)
+        // A phone has no left column: the same panel, presented from the editor.
+        .sheet(isPresented: $showingTunerSheet, onDismiss: { setTuner(false) }) {
+            TunerPanel()
+                .presentationDetents([.medium])
+        }
+        #endif
         .alert("Export Failed", isPresented: showingExportFailure) {
             Button("OK", role: .cancel) { exporter.lastError = nil }
         } message: {
@@ -79,8 +90,15 @@ struct ContentView: View {
         Group {
             if useSplitView {
                 NavigationSplitView(columnVisibility: $columnVisibility) {
-                    RigLibraryView(selection: currentRig)
-                        .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 380)
+                    VStack(spacing: 0) {
+                        RigLibraryView(selection: currentRig)
+                        if showingTuner {
+                            Divider()
+                            TunerPanel()
+                                .containerRelativeFrame(.vertical) { height, _ in height * 0.5 }
+                        }
+                    }
+                    .navigationSplitViewColumnWidth(min: 240, ideal: 300, max: 380)
                 } detail: {
                     detail
                 }
@@ -114,9 +132,33 @@ struct ContentView: View {
                     )
                 }
             }
-            .settingsToolbarItem(isOpen: false) { openSettings() }
+            .settingsToolbarItem(isOpen: false,
+                                 tuner: (isOn: showingTuner,
+                                         isEnabled: engine.tuner.isSupported,
+                                         action: toggleTuner)) { openSettings() }
         }
     }
+
+    /// Show or hide the tuner. The session mounts the engine's node while it is up and removes it
+    /// when it goes (namchain docs/tuner.md), so this is also the mute button.
+    ///
+    /// One entry point for the button, the sheet's dismissal and opening settings, so the panel and
+    /// the engine can never disagree about whether the rig is muted.
+    private func setTuner(_ on: Bool) {
+        guard on != showingTuner else { return }
+        showingTuner = on
+        engine.setTunerVisible(on)
+        #if os(iOS)
+        // No column to put it in on a phone: the panel is a sheet, presented from here.
+        if !useSplitView { showingTunerSheet = on }
+        #endif
+    }
+
+    private func toggleTuner() { setTuner(!showingTuner) }
+
+    #if os(iOS)
+    @State private var showingTunerSheet = false
+    #endif
 
     @ViewBuilder
     private func editor(for id: UUID) -> some View {
@@ -162,6 +204,10 @@ struct ContentView: View {
     /// Open settings where the user last was, or on the first area. This is what the
     /// toolbar button does: it is the app's settings, so it does not presume a page.
     private func openSettings() {
+        // The tuner's panel is a child of this mode's column: opening settings takes the column, so
+        // the tuner goes with it -- and its node with the tuner, or the rig would stay muted with
+        // nothing on screen to say why.
+        setTuner(false)
         openSettings(settingsArea ?? SettingsArea.allCases.first ?? .hardware)
     }
 

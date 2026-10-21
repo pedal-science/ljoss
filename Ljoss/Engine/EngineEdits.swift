@@ -58,6 +58,11 @@ struct EngineCatalogue: Sendable, Equatable {
 
     func isMacro(_ type: String) -> Bool { macros.contains(type) }
 
+    /// Every type the engine's schema lists. Used for one question: whether a node type this app
+    /// mounts around a view (`nc.tuner`) exists on this device at all, so its button can be
+    /// disabled rather than the document refused.
+    var types: Set<String> { Set(rampable.keys) }
+
     /// For a parameter the engine rebuilt for when this said it would ramp. Streaming it
     /// would be a rebuild per step of a drag, so it goes back to whole documents.
     mutating func stopRamping(_ type: String, _ param: String) {

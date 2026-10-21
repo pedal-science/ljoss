@@ -52,7 +52,7 @@ struct EngineNode: Hashable, Sendable {
     /// key in a node object is a parameter, so a parameter named like one of these
     /// would be silently swallowed — `DocumentEncoder` refuses to produce one.
     static let reservedKeys: Set<String> = [
-        "id", "type", "element", "role", "params", "strings", "bypass",
+        "id", "type", "element", "role", "params", "strings", "bypass", "meta",
     ]
 
     /// The id this app chose. Unique within the chain, and what a `rig.patch` names.
@@ -73,6 +73,12 @@ struct EngineNode: Hashable, Sendable {
     /// Written inline beside the reserved keys, which is how the engine's own rig
     /// files spell them (`rigs/guitar-chain.json`).
     var params: [String: EngineValue] = [:]
+
+    /// The engine's passthrough: it keeps this exactly as written, returns it from
+    /// `rig.get`, and never reads it. Used for one thing today — marking the node a
+    /// client mounted around its own view (`"ephemeral": "tuner"`), so the service that
+    /// saves a resume record knows to leave it out (namchain docs/tuner.md).
+    var meta: [String: String] = [:]
 }
 
 /// A key whose name is only known at runtime, for the inline parameters.
@@ -93,6 +99,7 @@ extension EngineNode: Encodable {
         // Only when true: the engine defaults it to false, and an explicit `false` on
         // every node is noise in a document a human may have to read.
         if bypass { try container.encode(true, forKey: DynamicKey("bypass")) }
+        if !meta.isEmpty { try container.encode(meta, forKey: DynamicKey("meta")) }
         // Sorted, so two encodings of the same rig are byte-identical and a diff
         // between two documents shows what actually changed.
         for key in params.keys.sorted() {
