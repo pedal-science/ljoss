@@ -287,10 +287,24 @@ it is not drawn on the canvas, not saved in the library and not in an export (th
 - **The reading** is `rig.state`, the method flowEQ's panel uses, filtered to the `nc.tuner` node
   and decoded through `JSONValue` — a node's `state` is its own vocabulary, and a fixed struct for
   the tuner's shape would fail the whole reply the moment a rig also held an `nc.eq.flow` node.
+- **The switch.** The node's `mute` is a rampable flag (namchain docs/tuner.md, "The switch"), and
+  `EngineSession.setTunerMuted` sends one `rig.patch` per chain — a patch names its chain — with the
+  node id the encoder gave that chain. The answer is `smooth`: the node fades the pass-through over
+  5 ms and nothing rebuilds, so the reading does not restart and the strobe does not jump. A rebuild
+  would be visible as the display blinking. The button shows the player's intent, which is the
+  session's `tunerMuted`; `TunerReading.muted` is what the engine reports, so a refused patch puts
+  the button back and says why. Kept for the session and never saved, like the panel's visibility.
 - **The failure that matters.** `TunerReading.running` comes from the engine's own document, not
   from what this app asked for, so a refused publish shows as "the rig is not muted" on a panel that
   is visibly up. `EngineSession.setTunerVisible` leaves the flag where it was and the panel tells
   the truth; there is no state in which the app claims a mute it did not get.
+- **The strobe.** Three rows for partials 1, 2 and 4, labelled `1x`, `2x` and `4x`, drifting
+  `0.5 · cents · k` band periods per second, clamped at 12, still in tune — ported from
+  squatch-tuner's reference implementation (`hosts/web/strobe.js`). The law is `TunerStrobe`
+  (Foundation only, tested); the panel draws bands into a `Canvas` per row and computes nothing.
+  `TunerModel` advances it on its own 16 ms ticker while the panel is up, fed the interval rather
+  than a tick count, so a dropped frame moves the bands further instead of slower and a stalled one
+  is clamped rather than teleporting a period. Nothing ticks when the panel is closed.
 
 ## The local engine
 
@@ -505,7 +519,9 @@ established, in order:
   the panel would send — a tuner after each chain's input — and then reads `rig.state` back with the
   decoder the panel uses. Against a looped 440 Hz tone: five nodes, four connections, accepted, and
   `running true, valid true, note 'A4', cents '0.0', '440.0 Hz', level '-17 dB'`. The node's output
-  is silence, so the amp behind it heard nothing; that is the mute, exercised end to end.
+  is silence, so the amp behind it heard nothing; that is the mute, exercised end to end. It then
+  sends the switch's patch — one `set_param` per chain, answered `smooth` — and waits for
+  `rig.state` to report the rig audible, which is the same request `setTunerMuted` sends.
 - **A NAM model runs.** `Tools/check-device.sh … amp` applies one Brit 800, which lowers
   to `nc.nam` plus `fx.amp.tonestack`, with its model named by library **id** (`A2`) —
   never a path, since the engine refuses an absolute path from a network client

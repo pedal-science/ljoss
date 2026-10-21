@@ -20,6 +20,8 @@ import Observation
 final class TunerModel {
 
     private static let interval = Duration.milliseconds(33)
+    /// The strobe's own clock: a drift has to be smooth, and 60 frames a second is what smooth is.
+    private static let frame = Duration.milliseconds(16)
 
     /// The newest reading, or `waiting` before the first reply.
     private(set) var reading = TunerReading.waiting
@@ -29,11 +31,17 @@ final class TunerModel {
     /// document refused (an engine that predates the node would refuse the whole publish).
     private(set) var isSupported = false
 
+    /// The strobe's rows: three phases and their presence, advanced at frame rate while the panel
+    /// is up. The maths lives in `TunerStrobe` (Foundation only, and tested); this only feeds it.
+    private(set) var strobe = TunerStrobe()
+
     /// Why the reading stopped moving, if it did. A transport failure is the session's business —
     /// it notices on its own poll — so this only records it.
     private(set) var failure: String?
 
     @ObservationIgnored private var poller: Task<Void, Never>?
+    @ObservationIgnored private var ticker: Task<Void, Never>?
+    @ObservationIgnored private var lastFrame: Date?
     @ObservationIgnored private var client: EngineClient?
     @ObservationIgnored private var watching = false
 
@@ -55,6 +63,9 @@ final class TunerModel {
     func stop() {
         poller?.cancel()
         poller = nil
+        ticker?.cancel()
+        ticker = nil
+        strobe.reset()
         client = nil
         watching = false
         reading = TunerReading.waiting
@@ -69,9 +80,13 @@ final class TunerModel {
         reading = TunerReading.waiting
         if on {
             restart()
+            startTicker()
         } else {
             poller?.cancel()
             poller = nil
+            ticker?.cancel()
+            ticker = nil
+            strobe.reset()
         }
     }
 
@@ -85,6 +100,25 @@ final class TunerModel {
             while !Task.isCancelled {
                 await self?.refresh()
                 try? await Task.sleep(for: Self.interval)
+            }
+        }
+    }
+
+    private func startTicker() {
+        ticker?.cancel()
+        lastFrame = Date()
+        ticker = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: Self.frame)
+                guard let self, !Task.isCancelled else { return }
+                let now = Date()
+                let seconds = self.lastFrame.map { now.timeIntervalSince($0) } ?? 0
+                self.lastFrame = now
+                // A copy, mutated, then written back: observation fires once for the frame rather
+                // than once per row.
+                var next = self.strobe
+                next.advance(seconds: seconds, cents: self.reading.cents, valid: self.reading.valid)
+                if next != self.strobe { self.strobe = next }
             }
         }
     }

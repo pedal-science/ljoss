@@ -101,12 +101,17 @@ final class EngineSession {
     /// the reading is polled. A viewing state, never saved: the app never starts muted.
     private(set) var tunerVisible = false
 
+    /// The tuner's switch: true means the mounted node's output is silence. Kept for the session and
+    /// never saved — a real pedal's switch stays where it was pushed, and `mute` is the node's
+    /// default, so the app always starts with the tuner silent.
+    private(set) var tunerMuted = true
+
     /// Every document this app publishes goes through here, so the tuner node is in all of them or
     /// in none. That matters for `baseline` as much as for the wire: it is the document an edit is
     /// diffed against, and an encode with the node compared against a baseline without it would
     /// make every edit structural and kill the ramp path.
     private func encode(_ rig: Rig) -> EncodeResult {
-        DocumentEncoder.encode(rig, tuner: tunerVisible)
+        DocumentEncoder.encode(rig, tuner: tunerVisible, tunerMute: tunerMuted)
     }
     @ObservationIgnored private var poller: Task<Void, Never>?
     @ObservationIgnored private var latest: Rig?
@@ -625,6 +630,32 @@ final class EngineSession {
             return
         }
         route(encode(latest))
+    }
+
+    /// Stomp the tuner's switch. One `rig.patch` per chain, because a patch names the chain it
+    /// applies to; the answer is `smooth`, so the node fades the pass-through and nothing rebuilds.
+    /// A refusal puts the switch back where it was.
+    func setTunerMuted(_ muted: Bool) async {
+        guard muted != tunerMuted, let latest, let client else { return }
+        tunerMuted = muted
+        for (index, chain) in latest.chains.enumerated() {
+            // The node id is the one the encoder gave this chain, so the two cannot drift.
+            let op = PatchOp(target: .node("tuner-\(index)"),
+                             param: DocumentEncoder.tunerMuteParam,
+                             value: muted ? 1 : 0)
+            do {
+                let reply = try await client.call(PatchRequest(chain: chain.id.uuidString, ops: [op]),
+                                                  expecting: PatchResponse.self)
+                // A `structural` answer means the engine rebuilt instead of ramping -- it still
+                // moved the switch, so there is nothing to undo, but the reading restarts.
+                _ = reply.kind
+            } catch {
+                // Put the switch back: the node did not move, so neither should the button.
+                tunerMuted = !muted
+                lastFailure = error as? EngineFailure
+                return
+            }
+        }
     }
 
     func setMuted(_ muted: Bool, chain: String?) async {

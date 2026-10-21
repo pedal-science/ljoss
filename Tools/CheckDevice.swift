@@ -79,6 +79,32 @@ enum CheckDevice {
                             say("FAILED: the document was accepted but the engine runs no tuner node")
                             exit(1)
                         }
+
+                        // The panel's switch, with the request the session sends: one `set_param`
+                        // per chain, answered `smooth` (the node fades, nothing rebuilds).
+                        for (index, chain) in document.chains.enumerated() {
+                            let op = PatchOp(target: .node("tuner-\(index)"),
+                                             param: DocumentEncoder.tunerMuteParam, value: 0)
+                            let reply = try await client.call(
+                                PatchRequest(chain: chain.id, ops: [op]), expecting: PatchResponse.self)
+                            say("switch     chain \(index): \(reply.kind ?? "?")")
+                        }
+                        var switched = false
+                        for _ in 0..<200 {
+                            if switched { break }
+                            let state = try await client.call(PlainRequest("rig.state"),
+                                                             expecting: StateResponse.self)
+                            let nodes = state.nodes ?? []
+                            switched = !nodes.isEmpty && nodes.allSatisfy { node in
+                                (node.state?[DocumentEncoder.tunerMuteParam]?.bool ?? true) == false
+                            }
+                            if !switched { try await Task.sleep(for: .milliseconds(5)) }
+                        }
+                        say("switch     the engine reports the rig \(switched ? "audible" : "still muted")")
+                        guard switched else {
+                            say("FAILED: the patch was accepted but rig.state still says the rig is muted")
+                            exit(1)
+                        }
                     }
                     say("OK")
                     exit(0)

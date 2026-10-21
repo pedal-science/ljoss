@@ -111,6 +111,37 @@ func testTunerNodeSurvivesAParallelSection() {
           "the split is fed by the tuner")
 }
 
+private func mountedNode(_ document: EngineDocument?, _ chain: Int = 0) -> EngineNode? {
+    guard let chain = document?.chains[safe: chain] else { return nil }
+    return chain.nodes.first { $0.type == DocumentEncoder.tunerNodeType }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
+func testTunerNodeCarriesTheSwitch() {
+    // The node's default is silence, so a muted tuner says nothing and an open one has to say so --
+    // the engine builds the node from what the document asks (namchain docs/tuner.md).
+    let dual = rig([guitar([.block(amp())]), SignalChain(name: "Vocal", source: .vocal, elements: [])],
+                   layout: .dual)
+    let muted = DocumentEncoder.encode(dual, tuner: true)
+    let open = DocumentEncoder.encode(dual, tuner: true, tunerMute: false)
+
+    for chain in 0..<2 {
+        guard let mutedNode = mountedNode(muted.document, chain),
+              let openNode = mountedNode(open.document, chain) else {
+            check(false, "both documents carry a tuner in every chain")
+            continue
+        }
+        check(mutedNode.params.isEmpty, "a muted tuner declares no parameters")
+        check(openNode.params[DocumentEncoder.tunerMuteParam] == .number(0),
+              "an open one says so (got \(String(describing: openNode.params)))")
+        check(openNode.meta["ephemeral"] == DocumentEncoder.tunerMarker,
+              "and is still marked as the client's")
+    }
+}
+
 // MARK: - The reading
 
 private func stateReply(_ state: JSONValue?, type: String = "nc.tuner") -> StateResponse {
@@ -119,9 +150,11 @@ private func stateReply(_ state: JSONValue?, type: String = "nc.tuner") -> State
 }
 
 private func tunerState(valid: Bool, note: String = "", octave: Int = 0, cents: Double = 0,
-                       hz: Double = 0, levelDb: Double = -18, a4: Double = 440) -> JSONValue {
+                       hz: Double = 0, levelDb: Double = -18, a4: Double = 440,
+                       muted: Bool = true) -> JSONValue {
     var fields: [String: JSONValue] = [
         "a4": .number(a4), "blocks": .number(1500), "valid": .bool(valid), "level_db": .number(levelDb),
+        "mute": .bool(muted),
     ]
     if valid {
         fields["note"] = .string(note)
@@ -135,6 +168,22 @@ private func tunerState(valid: Bool, note: String = "", octave: Int = 0, cents: 
         fields["partials"] = .number(5)
     }
     return .object(fields)
+}
+
+func testTunerReadingCarriesTheSwitch() {
+    // The panel's button shows the player's intent; this is the engine's answer, and the two
+    // disagreeing is what a refused patch looks like.
+    let open = tunerState(valid: true, note: "A", octave: 4, cents: 0, hz: 440, muted: false)
+    check(!TunerReading.decoding(stateReply(open)).muted, "the switch is read as the engine has it")
+
+    // A node that predates the switch, or a state with it missing: muted is the node's default, and
+    // a panel that guessed "audible" would claim a mute it does not have.
+    check(TunerReading.decoding(stateReply(.object(["valid": .bool(true)]))).muted,
+          "no key means the default, which is muted")
+
+    // A flag arrives as 0/1 sometimes, which is the same answer.
+    let asNumber = stateReply(.object(["valid": .bool(true), "mute": .number(0)]))
+    check(!TunerReading.decoding(asNumber).muted, "0 is open, however it is spelled")
 }
 
 func testTunerReadingDecodes() {
@@ -191,6 +240,68 @@ func testTunerReadingIgnoresOtherNodes() {
                                 state: tunerState(valid: true, note: "E", octave: 2, cents: 0.4, hz: 82.41))
     let reading = TunerReading.decoding(StateResponse(generation: 3, nodes: [flow, tuner]))
     check(reading.valid && reading.noteText == "E2", "the tuner's entry is the one read")
+}
+
+// MARK: - The strobe
+
+func testStrobeDriftsByCentsAndPartial() {
+    // Ported law (namchain docs/tuner.md, "The strobe"): row k drifts 0.5 * cents * k periods per
+    // second, clamped at 12. Ten cents sharp for a tenth of a second is 0.5, 1 and 2 periods, so the
+    // first row lands half way, the second comes back round, and the fourth is clamped to 12
+    // periods a second and lands at a fifth.
+    var strobe = TunerStrobe()
+    strobe.advance(seconds: 0.1, cents: 10, valid: true)
+    check(abs(strobe.phases[0] - 0.5) < 0.01, "the fundamental half a period (got \(strobe.phases[0]))")
+    check(abs(strobe.phases[1]) < 0.01 || abs(strobe.phases[1] - 1) < 0.01, "the octave a whole one")
+    check(abs(strobe.phases[2] - 0.2) < 0.01, "the fourth clamped, at a fifth (got \(strobe.phases[2]))")
+    check(strobe.activity > TunerStrobe.settledActivity + 0.1,
+          "and the bands have come up while there is a note (got \(strobe.activity))")
+
+    // Flat drifts the other way, which is the row leaning left.
+    var flat = TunerStrobe()
+    flat.advance(seconds: 0.1, cents: -10, valid: true)
+    check(abs(flat.phases[0] - 0.5) < 0.01, "flat wraps the other way to the same half way")
+
+    // In tune: every row stands still, which is the reading a player tunes to.
+    var tuned = TunerStrobe()
+    tuned.advance(seconds: 0.3, cents: 0, valid: true)
+    check(tuned.phases == [0, 0, 0], "a perfect note does not drift")
+
+    // No note: nothing to drift, and the bands settle rather than animating a reading that is not
+    // there.
+    var idle = TunerStrobe()
+    idle.advance(seconds: 0.3, cents: 30, valid: false)
+    check(idle.phases == [0, 0, 0], "no note, no drift")
+    check(idle.activity < TunerStrobe.settledActivity + 0.01, "and the rows have faded")
+}
+
+func testStrobeClampsAndSurvivesAStall() {
+    // 50 cents unclamped is 25 periods a second. A quarter of a second is six periods, which wraps
+    // to nothing; the clamp's twelve is three whole periods, so the row is back at the start either
+    // way -- so the check is on the *rate*, which is what the clamp is for.
+    var strobe = TunerStrobe()
+    strobe.advance(seconds: 1.0 / 24.0, cents: 50, valid: true) // 12 / 24 = half a period
+    check(abs(strobe.phases[0] - 0.5) < 0.01, "the clamp's twelve periods a second (got \(strobe.phases[0]))")
+
+    // A stalled clock (a suspension, a debugger) must not teleport the bands a whole period, and a
+    // zero or negative interval must not divide by it.
+    let before = strobe.phases[0]
+    strobe.advance(seconds: 30, cents: 50, valid: true)
+    check(strobe.phases[0] < 1 && strobe.phases[0] >= 0, "a stall is clamped, not taken literally")
+    check(strobe.phases[0] != before || before == 0, "and it still moves a frame's worth")
+    strobe.advance(seconds: 0, cents: 50, valid: true)
+    check(strobe.phases[0] >= 0 && strobe.phases[0] < 1, "a zero interval is a frame, not a crash")
+}
+
+func testStrobeOffsetIsTheDirectionAPlayerReads() {
+    // Sharp drifts right: the view's offset grows with the phase, and the reference has the bands
+    // moving right too (hosts/web/strobe.js translates by +phase * period).
+    var strobe = TunerStrobe()
+    strobe.advance(seconds: 0.1, cents: 10, valid: true) // ten cents: half a period, no wrap
+    check(strobe.offset(0, period: 100) > 0, "a sharp note puts the bands to the right")
+    check(abs(strobe.offset(0, period: 100) - strobe.phases[0] * 100) < 0.001,
+          "the offset is the phase in the view's own units")
+    check(strobe.offset(9, period: 100) == 0, "a row that is not there has no offset")
 }
 
 func testTunerStateDecodesThroughJSON() {

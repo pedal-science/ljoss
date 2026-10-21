@@ -246,6 +246,11 @@ nothing about it is saved, undone or exported. The engine half of that is
 - The panel is a child of the sidebar `VStack` in `ContentView`, at
   `containerRelativeFrame(.vertical) { height, _ in height * 0.5 }` — **half the column**, as asked,
   and it follows the column's width without a second size of its own.
+- What is in it, top to bottom: the note and its cents, a short needle bar, the **1x/2x/4x strobe**,
+  the frequency and input level, and the **mute switch**. The strobe is the fine display and the
+  needle bar the coarse one; the switch is the panel's only control. A narrow column means compact
+  type — 46pt for the note rather than the 64 the first version had — and three `Canvas` rows rather
+  than 120 band views.
 - It is not in `RigLibraryView`. That view is a `List` with selection, a context menu, swipe actions
   and a rename alert; wrapping it in a `VStack` at the shell is one line and leaves all of that alone.
 - **Settings closes the tuner.** Settings is a mode that takes the column, so a panel left "open"

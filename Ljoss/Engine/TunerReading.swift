@@ -31,6 +31,10 @@ struct TunerReading: Equatable, Sendable {
     var levelText = "-120 dB"
     var a4Text = ""              // "A4 = 440 Hz"
     var inTune = false
+    /// The node's switch, from the engine's state: true means its output is silence. The panel's
+    /// control is the session's intent; this is the engine's answer, so a refused patch leaves the
+    /// two visibly disagreeing rather than silently lying.
+    var muted = true
     var status = ""              // one line, when the rig is not muted or there is no note
 
     /// The needle's position across the scale, -1 … 1 (0 is in tune), or nil with no note.
@@ -38,8 +42,8 @@ struct TunerReading: Equatable, Sendable {
         guard valid, let cents else { return nil }
         return max(-1, min(1, cents / Self.maxCents))
     }
-    /// The needle's arithmetic before it becomes a position: the raw cents, for the tests.
-    private var cents: Double?
+    /// The offset from the nearest note, signed — what the needle and the strobe both read.
+    private(set) var cents: Double?
 
     /// The input's level as a bar's fill, 0 … 1 over `levelFloorDb` … 0 dBFS.
     var levelFraction: Double { levelDb.map { max(0, min(1, ($0 - Self.levelFloorDb) / -Self.levelFloorDb)) } ?? 0 }
@@ -64,6 +68,7 @@ struct TunerReading: Equatable, Sendable {
         reading.running = true
         let state = entry.state
         reading.valid = state?["valid"]?.bool ?? false
+        reading.muted = state?["mute"]?.bool ?? true
         reading.levelDb = state?["level_db"]?.double
         reading.levelText = Self.dbText(reading.levelDb ?? -120)
         reading.a4Text = "A4 = " + Self.numberText(state?["a4"]?.double ?? 440, decimals: 0) + " Hz"
@@ -106,5 +111,61 @@ struct TunerReading: Equatable, Sendable {
     // that writes a comma would be a different number to anyone reading it.
     private static func numberText(_ value: Double, decimals: Int) -> String {
         String(format: "%.\(decimals)f", value)
+    }
+}
+
+// The strobe's three rows, ported from squatch-tuner's reference implementation
+// (`hosts/web/strobe.js`, and namchain docs/tuner.md, "The strobe"): partials 1, 2 and 4 of the note,
+// row k drifting k times as fast as the fundamental, at 0.5 band periods per second per cent, and no
+// faster than 12 — which is what would alias at a display's frame rate.
+//
+// A value type fed the interval between frames rather than a tick count: a dropped frame moves the
+// bands further, not slower, and a stalled one (a suspension) is clamped instead of teleporting a
+// whole period. Foundation only, so the test runner checks the law without a window.
+struct TunerStrobe: Equatable, Sendable {
+
+    static let partials = [1.0, 2.0, 4.0]
+    static let labels = ["1x", "2x", "4x"]
+    static let driftPerCent = 0.5
+    static let maxDrift = 12.0
+    /// What a frame is assumed to be when the clock says something impossible.
+    static let fallbackInterval = 1.0 / 60.0
+    /// The longest interval honoured: anything more is a stall, not a slow frame.
+    static let maxInterval = 0.25
+    /// The bands' presence, and how fast it follows whether there is a note: the reference's own
+    /// gesture for "the strings have stopped" is to settle and fade rather than to blank.
+    static let settledActivity = 0.22
+    static let activityTimeConstant = 0.25
+
+    private(set) var phases = [0.0, 0.0, 0.0]
+    private(set) var activity = TunerStrobe.settledActivity
+
+    /// One frame. `cents` is drawn only when there is a reading the engine trusts: no note means no
+    /// drift, because a row animating a reading that is not there is a lie with motion in it.
+    mutating func advance(seconds: Double, cents: Double?, valid: Bool) {
+        var dt = seconds
+        if !(dt > 0) || dt > Self.maxInterval { dt = Self.fallbackInterval }
+        let offset = (valid ? cents : nil) ?? 0
+        for row in phases.indices {
+            let speed = valid
+                ? max(-Self.maxDrift, min(Self.maxDrift, Self.driftPerCent * offset * Self.partials[row]))
+                : 0
+            var phase = phases[row] + speed * dt
+            phase -= (phase).rounded(.down)
+            phases[row] = phase
+        }
+        let target = valid ? 1.0 : Self.settledActivity
+        activity += (target - activity) * (1 - exp(-dt / Self.activityTimeConstant))
+    }
+
+    /// Where a row's bands sit, in the same units as `period` (pixels, if the view passes its band
+    /// width): sharp drifts right, which is the reference's direction, so the offset is positive.
+    func offset(_ row: Int, period: Double) -> Double {
+        phases.indices.contains(row) ? phases[row] * period : 0
+    }
+
+    mutating func reset() {
+        phases = [0, 0, 0]
+        activity = Self.settledActivity
     }
 }

@@ -69,13 +69,16 @@ enum DocumentEncoder {
     static let tunerMarker = "tuner"
     /// The element a mounted node carries, so a reader can tell where it came from.
     static let tunerElement = "tuner"
+    /// The node's switch: 0 lets the input through, 1 (the engine's default) is silence.
+    static let tunerMuteParam = "mute"
 
-    static func encode(_ rig: Rig, tuner: Bool = false) -> EncodeResult {
+    static func encode(_ rig: Rig, tuner: Bool = false, tunerMute: Bool = true) -> EncodeResult {
         var refusals: [EncodeRefusal] = []
         var chains: [EngineChain] = []
 
         for (index, chain) in rig.chains.enumerated() {
-            chains.append(encode(chain, at: index, tuner: tuner, refusals: &refusals))
+            chains.append(encode(chain, at: index, tuner: tuner, tunerMute: tunerMute,
+                                 refusals: &refusals))
         }
 
         let visible = rig.activeChains.map { $0.id }
@@ -92,6 +95,7 @@ enum DocumentEncoder {
     private static func encode(_ chain: SignalChain,
                                at index: Int,
                                tuner: Bool,
+                               tunerMute: Bool,
                                refusals: inout [EncodeRefusal]) -> EngineChain {
         var nodes: [EngineNode] = []
         var connections: [EngineConnection] = []
@@ -106,7 +110,10 @@ enum DocumentEncoder {
         // `rig.get` read back names one node.
         if tuner {
             let id = "tuner-\(index)"
+            // The switch, only when it is open: the node's default is silence, so a muted tuner says
+            // nothing and an open one has to say so (namchain docs/tuner.md, "The switch").
             nodes.append(EngineNode(id: id, type: tunerNodeType, element: tunerElement,
+                                    params: tunerMute ? [:] : [tunerMuteParam: .number(0)],
                                     meta: ["ephemeral": tunerMarker]))
             connections.append(EngineConnection(from: "in", fromPort: 0, to: id))
             here = Port(node: id, index: 0)
