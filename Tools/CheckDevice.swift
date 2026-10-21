@@ -8,7 +8,7 @@ import Foundation
 // a daemon, so it is a tool rather than a test — the same shape as namchainctl, and for
 // the same reason.
 //
-// usage: check-device HOST PORT TOKEN [RIG]
+// usage: check-device HOST PORT TOKEN [RIG] [tuner]
 
 @main
 enum CheckDevice {
@@ -25,6 +25,7 @@ enum CheckDevice {
             exit(2)
         }
         let rigName = arguments.count > 3 ? arguments[3] : "gain0"
+        let tuner = arguments.count > 4 && arguments[4] == "tuner"
 
         let client = EngineClient(host: arguments[0], port: port, token: arguments[2])
         do {
@@ -44,7 +45,7 @@ enum CheckDevice {
                 say("FAILED: no rig called '\(rigName)'; try one of \(TestRigs.names)")
                 exit(2)
             }
-            let encoded = DocumentEncoder.encode(make())
+            let encoded = DocumentEncoder.encode(make(), tuner: tuner)
             for refusal in encoded.refusals { say("refused    \(refusal.chain): \(refusal.message)") }
             guard let document = encoded.document else { exit(1) }
 
@@ -64,6 +65,21 @@ enum CheckDevice {
                 if audible >= (applied.generation ?? 0) {
                     say("audible    generation \(audible) after \(attempt) poll(s)")
                     say("xruns      \(status.status?.xruns ?? 0), failed nodes \(status.status?.failedNodes ?? 0)")
+                    if tuner {
+                        let state = try await client.call(PlainRequest("rig.state"),
+                                                         expecting: StateResponse.self)
+                        let reading = TunerReading.decoding(state)
+                        say("tuner      running \(reading.running), valid \(reading.valid), "
+                            + "note '\(reading.noteText)', cents '\(reading.centsText)', "
+                            + "'\(reading.hzText)', level '\(reading.levelText)'")
+                        if let status = reading.status.isEmpty ? nil : reading.status {
+                            say("tuner      \(status)")
+                        }
+                        guard reading.running else {
+                            say("FAILED: the document was accepted but the engine runs no tuner node")
+                            exit(1)
+                        }
+                    }
                     say("OK")
                     exit(0)
                 }

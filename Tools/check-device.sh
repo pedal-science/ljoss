@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Talk to a real namchaind with this app's own client. See Tools/CheckDevice.swift.
 #
-# usage: check-device.sh [HOST [PORT [TOKEN-FILE [RIG]]]]
+# usage: check-device.sh [HOST [PORT [TOKEN-FILE [RIG [tuner]]]]]
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,6 +23,7 @@ sources=(
   "$root"/Ljoss/Engine/BlockMapping.swift
   "$root"/Ljoss/Engine/DocumentEncoder.swift
   "$root"/Ljoss/Engine/EngineProtocol.swift
+  "$root"/Ljoss/Engine/TunerReading.swift
   "$root"/Ljoss/Engine/EngineFraming.swift
   "$root"/Ljoss/Engine/EngineClient.swift
   "$root"/Tools/TestRigs.swift
@@ -38,4 +39,6 @@ if [[ -x "$out" ]]; then
 fi
 (( needs_build )) && swiftc -swift-version 6 -O -o "$out" "${sources[@]}"
 
-"$out" "$host" "$port" "$(cat "$token_file")" "$rig"
+# Anything after the rig is passed on: `tuner` mounts the tuner's node the way the panel does.
+shift $(( $# < 4 ? $# : 4 ))
+"$out" "$host" "$port" "$(cat "$token_file")" "$rig" "$@"
