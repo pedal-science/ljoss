@@ -501,6 +501,11 @@ established, in order:
   `audible_generation` catches up — which is the only thing that says a rig is being
   heard rather than acknowledged. `Tools/check-device.sh` is that check, and it needs a
   daemon, so it is a tool rather than a test.
+- **The tuner mounts, mutes and reads.** `Tools/check-device.sh … amp tuner` encodes the document
+  the panel would send — a tuner after each chain's input — and then reads `rig.state` back with the
+  decoder the panel uses. Against a looped 440 Hz tone: five nodes, four connections, accepted, and
+  `running true, valid true, note 'A4', cents '0.0', '440.0 Hz', level '-17 dB'`. The node's output
+  is silence, so the amp behind it heard nothing; that is the mute, exercised end to end.
 - **A NAM model runs.** `Tools/check-device.sh … amp` applies one Brit 800, which lowers
   to `nc.nam` plus `fx.amp.tonestack`, with its model named by library **id** (`A2`) —
   never a path, since the engine refuses an absolute path from a network client
