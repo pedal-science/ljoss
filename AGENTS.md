@@ -32,4 +32,4 @@ user's. pedal.science's teaser takes its screenshots this way (`comms/video/READ
 - LocalEngine and model-finder work is on the `local-engine` branch, not `main`.
 - The checkout is `~/code.local/pedal/ljoss`, and the app, the project and the Xcode target are all called Ljoss.
 
-System context (the pedal, how the repos fit together, the plan): `~/code.local/pedal/pedal.project`, starting at its `CLAUDE.md` and `docs/working-across-repos.md`.
+System context (the pedal, how the repos fit together, the plan): `~/code.local/pedal/pedal.project`, starting at its `AGENTS.md` and `docs/working-across-repos.md`.
